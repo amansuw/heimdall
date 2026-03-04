@@ -45,6 +45,7 @@ struct SensorListView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .frame(maxWidth: 400)
 
                 Spacer()

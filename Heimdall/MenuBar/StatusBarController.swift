@@ -16,19 +16,14 @@ class StatusBarController {
 
     func setup(popoverContent: NSViewController) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.length = max(NSStatusItem.squareLength, 28)
 
         guard let button = statusItem.button else { return }
 
         // Pure AppKit: layer-backed widget view for GPU-accelerated rendering
-        let widget = MenuBarWidgetView(frame: NSRect(x: 0, y: 0, width: 28, height: 22))
-        widget.translatesAutoresizingMaskIntoConstraints = false
+        let widget = MenuBarWidgetView(frame: button.bounds)
+        widget.autoresizingMask = [.width, .height]
         button.addSubview(widget)
-        NSLayoutConstraint.activate([
-            widget.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 2),
-            widget.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -2),
-            widget.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-            widget.heightAnchor.constraint(equalToConstant: 22),
-        ])
         self.widgetView = widget
 
         button.action = #selector(togglePopover)
@@ -43,6 +38,10 @@ class StatusBarController {
 
     func updateWidget() {
         guard let widget = widgetView else { return }
+
+        let isLoading = (sensorState?.isDiscovering ?? false) || (fanState?.isRequestingAccess ?? false)
+        widget.setLoading(isLoading)
+        if isLoading { return }
 
         let fanPct = fanState?.averageSpeedPercentage ?? 0
         let cpuTemp = sensorState?.averageCPUTemp ?? 0

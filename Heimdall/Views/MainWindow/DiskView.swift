@@ -47,12 +47,30 @@ struct DiskView: View {
                             Text("Write: \(ByteFormatter.formatSpeed(disk.io.writeBytesPerSec))").font(.callout)
                         }
                     }
-                    let historyArray = disk.ioHistory.toArray()
+                    @Bindable var diskBinding = disk
+                    HStack(spacing: 6) {
+                        Text("Range")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Range", selection: $diskBinding.historyRange) {
+                            ForEach(HistoryRange.allCases) { range in
+                                Text(range.rawValue).tag(range)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    let historyArray = disk.filteredHistory
                     if historyArray.count >= 2 {
-                        CanvasMultiLineChart(series: [
-                            .init(data: historyArray.map { Double($0.readBytesPerSec) }, color: .blue),
-                            .init(data: historyArray.map { Double($0.writeBytesPerSec) }, color: .green),
-                        ])
+                        CanvasMultiLineChart(
+                            series: [
+                                .init(data: historyArray.map { Double($0.readBytesPerSec) }, color: .blue, label: "Read"),
+                                .init(data: historyArray.map { Double($0.writeBytesPerSec) }, color: .green, label: "Write"),
+                            ],
+                            yFormatter: { ByteFormatter.formatSpeed($0) },
+                            tooltipFormatter: { ByteFormatter.formatSpeed($0) }
+                        )
                         .frame(height: 120)
                     }
                 }

@@ -41,7 +41,21 @@ class FanController {
 
         DispatchQueue.main.async { [weak self] in
             self?.fanState?.fans = discovered
-            self?.fanState?.hasWriteAccess = self?.smc.testWriteAccess() ?? false
+            let directWrite = self?.smc.testWriteAccess() ?? false
+            self?.fanState?.hasWriteAccess = (self?.fanState?.hasWriteAccess ?? false) || directWrite
+        }
+    }
+
+    func restoreWriteAccessSilently() {
+        helperQueue.async { [weak self] in
+            guard let self else { return }
+
+            let connected = self.tryReconnectToDaemon(waitUpTo: 5)
+            let directWrite = self.smc.testWriteAccess()
+
+            DispatchQueue.main.async {
+                self.fanState?.hasWriteAccess = connected || directWrite || (self.fanState?.hasWriteAccess ?? false)
+            }
         }
     }
 
@@ -123,6 +137,24 @@ class FanController {
     private func closePersistentFDs() {
         if cmdFd >= 0 { Darwin.close(cmdFd); cmdFd = -1 }
         if rspFd >= 0 { Darwin.close(rspFd); rspFd = -1 }
+    }
+
+    private func tryReconnectToDaemon(waitUpTo timeout: TimeInterval) -> Bool {
+        if helperRunning && cmdFd >= 0 && rspFd >= 0 { return true }
+
+        closePersistentFDs()
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if SMCDaemon.isDaemonRunning() {
+                if connectToFIFOs(cmd: SMCDaemon.cmdPath, rsp: SMCDaemon.rspPath) {
+                    return true
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+
+        return false
     }
 
     func shutdown() {
@@ -464,8 +496,19 @@ class FanController {
     private func reevaluateCurveIfNeeded() {
         guard fanState?.controlMode == .curve,
               let curve = fanState?.activeCurve else { return }
-        let temp = sensorState?.averageCPUTemp ?? 0
+        let temp = curveSensorTemp(for: curve.sensorKey)
         guard temp > 0 else { return }
         applyFanCurveSpeed(temperature: temp, curve: curve)
+    }
+
+    private func curveSensorTemp(for key: String) -> Double {
+        guard let sensorState else { return 0 }
+        switch key {
+        case "AGG_CPU_AVG": return sensorState.averageCPUTemp
+        case "AGG_CPU_MAX": return sensorState.hottestCPUTemp
+        case "AGG_GPU_AVG": return sensorState.averageGPUTemp
+        default:
+            return sensorState.temperatureReadings.first(where: { $0.key == key })?.value ?? 0
+        }
     }
 }

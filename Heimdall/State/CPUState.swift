@@ -7,6 +7,7 @@ class CPUState {
     var loadAverage = LoadAverage()
     var uptime: TimeInterval = 0
     var topProcesses: [TopProcess] = []
+    var historyRange: HistoryRange = .max
     var history = RingBuffer<CPUSnapshot>(capacity: 1800)
 
     var totalCores: Int = 0
@@ -15,6 +16,13 @@ class CPUState {
 
     var formattedUptime: String {
         UptimeFormatter.format(uptime)
+    }
+
+    var filteredHistory: [CPUSnapshot] {
+        let all = history.toArray()
+        guard let window = historyRange.window else { return all }
+        let cutoff = Date().addingTimeInterval(-window)
+        return all.filter { $0.timestamp >= cutoff }
     }
 
     func apply(_ result: CPUReaderResult) {

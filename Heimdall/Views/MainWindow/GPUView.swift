@@ -28,6 +28,44 @@ struct GPUView: View {
                 }
                 .padding(.horizontal)
 
+                // Usage history
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Usage History").font(.headline)
+                    @Bindable var gpuBinding = gpu
+                    HStack(spacing: 6) {
+                        Text("Range")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Range", selection: $gpuBinding.historyRange) {
+                            ForEach(HistoryRange.allCases) { range in
+                                Text(range.rawValue).tag(range)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    let historyArray = gpu.filteredHistory
+                    if historyArray.count >= 2 {
+                        CanvasMultiLineChart(series: [
+                            .init(data: historyArray.map(\.utilization), color: .blue, label: "Total"),
+                            .init(data: historyArray.map(\.renderUtilization), color: .green, label: "Renderer"),
+                            .init(data: historyArray.map(\.tilerUtilization), color: .orange, label: "Tiler"),
+                        ], yRange: 0...100)
+                        .frame(height: 150)
+                        HStack(spacing: 16) {
+                            legendDot(color: .blue, label: "Total")
+                            legendDot(color: .green, label: "Renderer")
+                            legendDot(color: .orange, label: "Tiler")
+                        }.font(.caption2)
+                    } else {
+                        ProgressView().frame(height: 100)
+                    }
+                }
+                .padding()
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal)
+
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Details").font(.headline)
                     HStack { Text("Model").foregroundStyle(.secondary); Spacer(); Text(gpu.usage.modelName) }
@@ -50,5 +88,9 @@ struct GPUView: View {
 
     private func gaugeColor(_ v: Double) -> Color {
         if v < 30 { return .green }; if v < 60 { return .yellow }; if v < 80 { return .orange }; return .red
+    }
+
+    private func legendDot(color: Color, label: String) -> some View {
+        HStack(spacing: 4) { Circle().fill(color).frame(width: 6, height: 6); Text(label).foregroundStyle(.secondary) }
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FanControlView: View {
     @Environment(FanState.self) private var fan
+    @State private var showAccessPrompt = false
 
     var body: some View {
         ScrollView {
@@ -11,7 +12,7 @@ struct FanControlView: View {
                     Spacer()
                     if !fan.hasWriteAccess {
                         Button("Enable Control") {
-                            NotificationCenter.default.post(name: .requestFanAccess, object: nil)
+                            showAccessPrompt = true
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -140,6 +141,14 @@ struct FanControlView: View {
             .padding(.vertical)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .alert("Enable Fan Control", isPresented: $showAccessPrompt) {
+            Button("Cancel", role: .cancel) {}
+            Button("Continue", role: .destructive) {
+                NotificationCenter.default.post(name: .requestFanAccess, object: nil)
+            }
+        } message: {
+            Text("Fan control requires installing the Heimdall helper (one-time admin password) so we can talk to the SMC. Heimdall will momentarily pause while the helper requests access. Continue?")
+        }
     }
 
     private func speedColor(_ pct: Double) -> Color {

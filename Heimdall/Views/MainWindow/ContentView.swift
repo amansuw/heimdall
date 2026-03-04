@@ -9,9 +9,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case network = "Network"
     case battery = "Battery"
     case sensors = "Sensors"
-    case fanControl = "Fan Control"
-    case fanCurve = "Fan Curve"
-    case profiles = "Profiles"
+    case fanSettings = "Fan Settings"
 
     var id: String { rawValue }
 
@@ -25,9 +23,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .network: return "network"
         case .battery: return "battery.100percent"
         case .sensors: return "thermometer"
-        case .fanControl: return "fan.fill"
-        case .fanCurve: return "chart.xyaxis.line"
-        case .profiles: return "person.2.fill"
+        case .fanSettings: return "fan.fill"
         }
     }
 }
@@ -53,9 +49,7 @@ struct ContentView: View {
             case .network: NetworkView()
             case .battery: BatteryView()
             case .sensors: SensorListView()
-            case .fanControl: FanControlView()
-            case .fanCurve: FanCurveView()
-            case .profiles: ProfilesView()
+            case .fanSettings: FanSettingsView()
             }
         }
     }

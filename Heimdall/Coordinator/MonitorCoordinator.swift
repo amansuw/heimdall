@@ -32,6 +32,7 @@ class MonitorCoordinator {
     private var slowSource: DispatchSourceTimer?
     private var fastTickCount = 0
     private var slowTickCount = 0
+    private var boostedPollingUntil: Date?
 
     // Visibility-aware polling
     private var isWindowVisible = false
@@ -116,10 +117,31 @@ class MonitorCoordinator {
         updatePollingRate()
     }
 
+    func boostFastPollingTemporarily(duration: TimeInterval = 5) {
+        boostedPollingUntil = Date().addingTimeInterval(duration)
+        updatePollingRate()
+
+        fastQueue.asyncAfter(deadline: .now() + duration + 0.1) { [weak self] in
+            guard let self else { return }
+            if let until = self.boostedPollingUntil, until <= Date() {
+                self.boostedPollingUntil = nil
+                self.updatePollingRate()
+            }
+        }
+    }
+
     // MARK: - Polling Rate
 
     private var fastInterval: TimeInterval {
-        (isWindowVisible || isPopoverVisible) ? 2.0 : 5.0
+        if let until = boostedPollingUntil, until > Date() {
+            return 1.0
+        }
+        return (isWindowVisible || isPopoverVisible) ? 2.0 : 5.0
+    }
+
+    private var isBoostedPollingActive: Bool {
+        guard let until = boostedPollingUntil else { return false }
+        return until > Date()
     }
 
     private func updatePollingRate() {
@@ -139,9 +161,9 @@ class MonitorCoordinator {
         let netResult = networkReader.read()
         let diskIOResult = diskReader.readIO()
 
-        // Sensors every 5th fast tick
+        // Sensors every 5th fast tick (every tick during temporary boost)
         var sensorResult: SensorReaderResult?
-        if fastTickCount % 5 == 0 {
+        if isBoostedPollingActive || fastTickCount % 5 == 0 {
             sensorResult = sensorReader.read()
         }
 

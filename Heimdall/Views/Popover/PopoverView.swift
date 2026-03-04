@@ -28,10 +28,10 @@ struct PopoverView: View {
                 let history = sensors.filteredHistory
                 if history.count >= 2 {
                     CanvasMultiLineChart(series: [
-                        .init(data: history.map(\.avgCPU), color: .blue),
-                        .init(data: history.map(\.maxCPU), color: .blue.opacity(0.5), dashed: true),
-                        .init(data: history.map(\.avgGPU), color: .green),
-                        .init(data: history.map(\.maxGPU), color: .green.opacity(0.5), dashed: true),
+                        .init(data: history.map(\.avgCPU), color: .blue, label: "CPU Avg"),
+                        .init(data: history.map(\.maxCPU), color: .blue.opacity(0.5), label: "CPU Peak", dashed: true),
+                        .init(data: history.map(\.avgGPU), color: .green, label: "GPU Avg"),
+                        .init(data: history.map(\.maxGPU), color: .green.opacity(0.5), label: "GPU Peak", dashed: true),
                     ])
                     .frame(height: 100)
                     .padding(.horizontal, 10)

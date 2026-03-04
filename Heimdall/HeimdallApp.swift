@@ -49,6 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupCoordinator()
         setupStatusBar()
         setupNotificationHandlers()
+        fanController.restoreWriteAccessSilently()
 
         // Discover fans on background queue
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -125,6 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.addObserver(forName: .fanControlModeChanged, object: nil, queue: .main) { [weak self] notif in
                 if let mode = notif.object as? FanControlMode {
                     self?.fanController.setControlMode(mode)
+                    self?.coordinator.boostFastPollingTemporarily()
                 }
             }
         )
@@ -132,6 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observers.append(
             NotificationCenter.default.addObserver(forName: .fanSetAllAuto, object: nil, queue: .main) { [weak self] _ in
                 self?.fanController.setAllFansAuto()
+                self?.coordinator.boostFastPollingTemporarily()
             }
         )
 
@@ -139,6 +142,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.addObserver(forName: .fanSetAllSpeed, object: nil, queue: .main) { [weak self] notif in
                 if let speed = notif.object as? Double {
                     self?.fanController.setAllFansSpeed(percentage: speed)
+                    self?.coordinator.boostFastPollingTemporarily()
                 }
             }
         )
@@ -146,6 +150,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observers.append(
             NotificationCenter.default.addObserver(forName: .fanApplyManual, object: nil, queue: .main) { [weak self] _ in
                 self?.fanController.applyManualSpeed()
+                self?.coordinator.boostFastPollingTemporarily()
             }
         )
     }

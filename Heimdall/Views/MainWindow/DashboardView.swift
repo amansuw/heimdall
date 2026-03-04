@@ -6,6 +6,7 @@ struct DashboardView: View {
     @Environment(RAMState.self) private var ram
     @Environment(SensorState.self) private var sensors
     @Environment(FanState.self) private var fan
+    @Environment(ProfileState.self) private var profileState
     @Environment(NetworkState.self) private var network
     @Environment(DiskState.self) private var disk
     @Environment(BatteryState.self) private var battery
@@ -94,14 +95,69 @@ struct DashboardView: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
                     DashboardTempChart(history: sensors.filteredHistory)
                 }
                 .padding(.horizontal)
 
-                // Fan status
+                // Fan status + Quick presets
                 DashboardFanCard()
                     .padding(.horizontal)
+
+                // Fan Quick Presets
+                if fan.hasWriteAccess {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Fan Quick Presets").font(.headline)
+                        HStack(spacing: 8) {
+                            dashPresetButton("Auto", isActive: fan.unifiedSpeedLabel == "Auto") {
+                                NotificationCenter.default.post(name: .fanSetAllAuto, object: nil)
+                            }
+                            dashPresetButton("25%", isActive: fan.unifiedSpeedLabel == "25%") {
+                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 25.0)
+                            }
+                            dashPresetButton("50%", isActive: fan.unifiedSpeedLabel == "50%") {
+                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 50.0)
+                            }
+                            dashPresetButton("75%", isActive: fan.unifiedSpeedLabel == "75%") {
+                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 75.0)
+                            }
+                            dashPresetButton("Max", isActive: fan.unifiedSpeedLabel == "Max") {
+                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 100.0)
+                            }
+                        }
+
+                        // Latest saved fan curve profile
+                        if let latest = profileState.latestCustomProfile {
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Latest Profile").font(.caption2).foregroundStyle(.secondary)
+                                    Text(latest.name).font(.caption).fontWeight(.medium)
+                                }
+                                Spacer()
+                                if let c = latest.curve {
+                                    DashboardCurvePreview(curve: c)
+                                        .frame(width: 80, height: 30)
+                                }
+                                Button("Activate") {
+                                    profileState.setActiveProfile(latest)
+                                    if let c = latest.curve {
+                                        fan.activeCurve = c
+                                        NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.mini)
+                                .disabled(profileState.activeProfile?.id == latest.id)
+                            }
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                    .padding()
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                }
 
                 // Sensor groups
                 HStack(alignment: .top, spacing: 12) {
@@ -133,6 +189,50 @@ struct DashboardView: View {
     }
     private func tempColor(_ t: Double) -> Color {
         if t <= 0 { return .gray }; if t < 45 { return .green }; if t < 65 { return .yellow }; if t < 80 { return .orange }; return .red
+    }
+
+    private func dashPresetButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption).fontWeight(.medium)
+                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                .background(isActive ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(isActive ? Color.accentColor : .clear, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(fan.isYielding)
+    }
+}
+
+struct DashboardCurvePreview: View {
+    let curve: FanCurve
+
+    var body: some View {
+        Canvas { context, size in
+            let sorted = curve.sortedPoints
+            guard sorted.count >= 2 else { return }
+
+            var path = Path()
+            for (i, point) in sorted.enumerated() {
+                let x = ((point.temperature - 20) / 90) * size.width
+                let y = size.height - (CGFloat(point.fanSpeed) / 100.0) * size.height
+                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                else { path.addLine(to: CGPoint(x: x, y: y)) }
+            }
+
+            var fillPath = path
+            if let last = sorted.last {
+                fillPath.addLine(to: CGPoint(x: ((last.temperature - 20) / 90) * size.width, y: size.height))
+            }
+            if let first = sorted.first {
+                fillPath.addLine(to: CGPoint(x: ((first.temperature - 20) / 90) * size.width, y: size.height))
+            }
+            fillPath.closeSubpath()
+            context.fill(fillPath, with: .color(.blue.opacity(0.15)))
+            context.stroke(path, with: .color(.blue.opacity(0.7)), lineWidth: 1)
+        }
+        .background(Color.secondary.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }
 
@@ -198,10 +298,10 @@ struct DashboardTempChart: View {
 
             if history.count >= 2 {
                 CanvasMultiLineChart(series: [
-                    .init(data: history.map(\.avgCPU), color: .blue),
-                    .init(data: history.map(\.maxCPU), color: .blue.opacity(0.5), dashed: true),
-                    .init(data: history.map(\.avgGPU), color: .green),
-                    .init(data: history.map(\.maxGPU), color: .green.opacity(0.5), dashed: true),
+                    .init(data: history.map(\.avgCPU), color: .blue, label: "CPU Avg"),
+                    .init(data: history.map(\.maxCPU), color: .blue.opacity(0.5), label: "CPU Peak", dashed: true),
+                    .init(data: history.map(\.avgGPU), color: .green, label: "GPU Avg"),
+                    .init(data: history.map(\.maxGPU), color: .green.opacity(0.5), label: "GPU Peak", dashed: true),
                 ])
                 .frame(height: 180)
             } else {

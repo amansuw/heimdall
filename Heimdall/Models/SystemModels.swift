@@ -189,3 +189,18 @@ struct DiskIOSnapshot: Sendable {
     let readBytesPerSec: UInt64
     let writeBytesPerSec: UInt64
 }
+
+struct GPUSnapshot: Sendable {
+    let timestamp: Date
+    let utilization: Double
+    let renderUtilization: Double
+    let tilerUtilization: Double
+}
+
+struct RAMSnapshot: Sendable {
+    let timestamp: Date
+    let usagePercent: Double
+    let appBytes: UInt64
+    let wiredBytes: UInt64
+    let compressedBytes: UInt64
+}

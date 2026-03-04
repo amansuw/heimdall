@@ -11,12 +11,18 @@ enum ByteFormatter {
     }
 
     static func formatSpeed(_ bytesPerSec: UInt64) -> String {
-        let gb = Double(bytesPerSec) / 1_073_741_824
+        formatSpeed(Double(bytesPerSec))
+    }
+
+    static func formatSpeed(_ bytesPerSec: Double) -> String {
+        let value = max(bytesPerSec, 0)
+        let gb = value / 1_073_741_824
         if gb >= 1 { return String(format: "%.1f GB/s", gb) }
-        let mb = Double(bytesPerSec) / 1_048_576
+        let mb = value / 1_048_576
         if mb >= 1 { return String(format: "%.1f MB/s", mb) }
-        let kb = Double(bytesPerSec) / 1024
-        return String(format: "%.1f KB/s", kb)
+        let kb = value / 1024
+        if kb >= 1 { return String(format: "%.1f KB/s", kb) }
+        return String(format: "%.0f B/s", value)
     }
 }
 

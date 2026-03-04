@@ -41,10 +41,14 @@ struct NetworkView: View {
                     Text("Traffic History").font(.headline)
                     let historyArray = net.history.toArray()
                     if historyArray.count >= 2 {
-                        CanvasMultiLineChart(series: [
-                            .init(data: historyArray.map { Double($0.downloadBytesPerSec) }, color: .blue),
-                            .init(data: historyArray.map { Double($0.uploadBytesPerSec) }, color: .green),
-                        ])
+                        CanvasMultiLineChart(
+                            series: [
+                                .init(data: historyArray.map { Double($0.downloadBytesPerSec) }, color: .blue, label: "Download"),
+                                .init(data: historyArray.map { Double($0.uploadBytesPerSec) }, color: .green, label: "Upload"),
+                            ],
+                            yFormatter: { ByteFormatter.formatSpeed($0) },
+                            tooltipFormatter: { ByteFormatter.formatSpeed($0) }
+                        )
                         .frame(height: 150)
                         HStack(spacing: 16) {
                             legendDot(color: .blue, label: "Download")

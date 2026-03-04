@@ -45,6 +45,41 @@ struct RAMView: View {
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
 
+                // Usage history
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Usage History").font(.headline)
+                    @Bindable var ramBinding = ram
+                    HStack(spacing: 6) {
+                        Text("Range")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Range", selection: $ramBinding.historyRange) {
+                            ForEach(HistoryRange.allCases) { range in
+                                Text(range.rawValue).tag(range)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    let historyArray = ram.filteredHistory
+                    if historyArray.count >= 2 {
+                        CanvasLineChart(
+                            data: historyArray.map(\.usagePercent),
+                            color: pressureColor,
+                            fillColor: pressureColor.opacity(0.15),
+                            yRange: 0...100,
+                            label: "Usage %"
+                        )
+                        .frame(height: 150)
+                    } else {
+                        ProgressView().frame(height: 100)
+                    }
+                }
+                .padding()
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal)
+
                 ProcessListView(title: "Top Memory Processes", processes: ram.topProcesses)
                     .padding(.horizontal)
             }

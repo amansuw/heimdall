@@ -10,7 +10,7 @@ class ProfileState {
         profiles.first(where: { !$0.isBuiltIn })
     }
 
-    func setActiveProfile(_ profile: FanProfile) {
+    func setActiveProfile(_ profile: FanProfile?) {
         activeProfile = profile
     }
 

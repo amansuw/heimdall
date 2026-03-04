@@ -62,11 +62,22 @@ class BatteryReader {
 
         if let cycles = dict["CycleCount"] as? Int { info.cycleCount = cycles }
         if let designCap = dict["DesignCapacity"] as? Int { info.designCapacity = designCap }
-        if let maxCap = dict["MaxCapacity"] as? Int {
+
+        // AppleRawMaxCapacity is the true degraded maximum (what macOS shows as "Maximum Capacity")
+        // MaxCapacity can sometimes report the current charge level on newer Apple Silicon
+        let rawMax = dict["AppleRawMaxCapacity"] as? Int
+        let nominalMax = dict["NominalChargeCapacity"] as? Int
+        let ioMaxCap = dict["MaxCapacity"] as? Int
+
+        // Use the best available value for health calculation
+        let healthCapacity = rawMax ?? nominalMax ?? ioMaxCap
+        if let hc = healthCapacity, info.designCapacity > 0 {
+            info.healthPercent = Double(hc) / Double(info.designCapacity) * 100
+        }
+
+        // For display, use MaxCapacity (mAh shown to user)
+        if let maxCap = ioMaxCap {
             info.maxCapacity = maxCap
-            if info.designCapacity > 0 {
-                info.healthPercent = Double(maxCap) / Double(info.designCapacity) * 100
-            }
         }
 
         if let temp = dict["Temperature"] as? Int { info.temperature = Double(temp) / 100.0 }

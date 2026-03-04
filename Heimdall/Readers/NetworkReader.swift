@@ -14,6 +14,9 @@ class NetworkReader {
     private var prevBytesIn: UInt64 = 0
     private var prevBytesOut: UInt64 = 0
     private var prevTimestamp: Date?
+    private var isFetchingPublicIP = false
+    private var publicIPNextAllowedFetch: Date = .distantPast
+    private var publicIPConsecutiveFailures = 0
 
     func read() -> NetworkReaderResult {
         var totalIn: UInt64 = 0
@@ -105,20 +108,34 @@ class NetworkReader {
     }
 
     func fetchPublicIP(completion: @escaping (String?, String?) -> Void) {
+        let now = Date()
+        guard !isFetchingPublicIP, now >= publicIPNextAllowedFetch else {
+            completion(nil, nil)
+            return
+        }
+
+        isFetchingPublicIP = true
+
         let url = URL(string: "https://api.ipify.org")!
         var ipv4: String?
         var ipv6: String?
         let group = DispatchGroup()
 
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 4
+        config.timeoutIntervalForResource = 4
+        config.waitsForConnectivity = false
+        let session = URLSession(configuration: config)
+
         group.enter()
-        URLSession.shared.dataTask(with: url) { data, _, _ in
+        session.dataTask(with: url) { data, _, _ in
             defer { group.leave() }
             if let data = data { ipv4 = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) }
         }.resume()
 
         group.enter()
         let url6 = URL(string: "https://api64.ipify.org")!
-        URLSession.shared.dataTask(with: url6) { data, _, _ in
+        session.dataTask(with: url6) { data, _, _ in
             defer { group.leave() }
             if let data = data {
                 let trimmed = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -127,6 +144,16 @@ class NetworkReader {
         }.resume()
 
         group.notify(queue: .global(qos: .utility)) {
+            let hadAnyResult = (ipv4?.isEmpty == false) || (ipv6?.isEmpty == false)
+            if hadAnyResult {
+                self.publicIPConsecutiveFailures = 0
+                self.publicIPNextAllowedFetch = Date().addingTimeInterval(55)
+            } else {
+                self.publicIPConsecutiveFailures += 1
+                let backoff = min(pow(2.0, Double(max(0, self.publicIPConsecutiveFailures - 1))) * 60.0, 30 * 60.0)
+                self.publicIPNextAllowedFetch = Date().addingTimeInterval(backoff)
+            }
+            self.isFetchingPublicIP = false
             completion(ipv4, ipv6)
         }
     }

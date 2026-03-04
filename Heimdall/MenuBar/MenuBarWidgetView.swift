@@ -9,6 +9,7 @@ class MenuBarWidgetView: NSView {
 
     private var currentRotation: CGFloat = 0
     private var fanImage: NSImage?
+    private var isLoading = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -40,6 +41,8 @@ class MenuBarWidgetView: NSView {
     }
 
     func updateFanIcon(color: NSColor, rotation: CGFloat) {
+        guard !isLoading else { return }
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
@@ -47,6 +50,31 @@ class MenuBarWidgetView: NSView {
 
         // Static rotation angle based on fan speed — no animation loop
         fanIconLayer.transform = CATransform3DMakeRotation(rotation * .pi / 180, 0, 0, 1)
+
+        CATransaction.commit()
+    }
+
+    func setLoading(_ loading: Bool) {
+        guard loading != isLoading else { return }
+        isLoading = loading
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
+        if loading {
+            updateFanIconImage(color: .systemBlue)
+            fanIconLayer.transform = CATransform3DIdentity
+
+            let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+            spin.fromValue = 0
+            spin.toValue = CGFloat.pi * 2
+            spin.duration = 0.8
+            spin.repeatCount = .infinity
+            fanIconLayer.add(spin, forKey: "loading.spin")
+        } else {
+            fanIconLayer.removeAnimation(forKey: "loading.spin")
+            fanIconLayer.transform = CATransform3DIdentity
+        }
 
         CATransaction.commit()
     }

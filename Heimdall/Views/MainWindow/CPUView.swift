@@ -61,12 +61,26 @@ struct CPUView: View {
                 // Usage history
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Usage History").font(.headline)
-                    let historyArray = cpu.history.toArray()
+                    @Bindable var cpuBinding = cpu
+                    HStack(spacing: 6) {
+                        Text("Range")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Range", selection: $cpuBinding.historyRange) {
+                            ForEach(HistoryRange.allCases) { range in
+                                Text(range.rawValue).tag(range)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    let historyArray = cpu.filteredHistory
                     if historyArray.count >= 2 {
                         CanvasMultiLineChart(series: [
-                            .init(data: historyArray.map(\.total), color: .blue),
-                            .init(data: historyArray.map(\.user), color: .green),
-                            .init(data: historyArray.map(\.system), color: .orange),
+                            .init(data: historyArray.map(\.total), color: .blue, label: "Total"),
+                            .init(data: historyArray.map(\.user), color: .green, label: "User"),
+                            .init(data: historyArray.map(\.system), color: .orange, label: "System"),
                         ], yRange: 0...100)
                         .frame(height: 150)
                         HStack(spacing: 16) {
