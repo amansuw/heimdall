@@ -22,16 +22,34 @@ A native macOS system monitoring utility built for extreme efficiency. Monitors 
 
 ## Features
 
-- **Dashboard** — Real-time overview of CPU/GPU temps, fan speeds, power
-- **CPU** — Total/User/System %, P/E-core breakdown, per-core bars, usage history, load averages, frequency, top processes
-- **GPU** — Utilization %, render/tiler split, model info
-- **Memory** — Used/Free/Wired/Compressed/Swap, pressure level, top processes
-- **Disk** — Volume usage, I/O throughput, top I/O processes
-- **Network** — Download/Upload speed, totals, interface details, DNS, public IP
-- **Battery** — Level, health, cycle count, temperature, power, adapter info
-- **Sensors** — All SMC sensors (temperature/voltage/current/power), filterable table
-- **Fan Control** — Manual speed presets, fan curve editor, profile system
-- **Menu Bar** — Pure AppKit CALayer-based widget (GPU-composited, ~0% CPU)
+Explore each module below for a closer look at Heimdall's monitoring and control surfaces.
+
+### Dashboard
+![Dashboard](images/dashboard.png)
+
+### CPU Insights
+Detailed P/E-core usage breakdown, per-core bars, usage history with selectable range, load averages, clock frequencies, and top CPU processes.
+![CPU](images/cpu.png)
+
+### GPU Insights
+GPU utilization gauge, render/tiler split, usage history, and live stats for the current graphics device.
+![GPU](images/gpu.png)
+
+### Memory
+Live memory pressure, breakdown of app/wired/compressed/swap usage, trend charts, and top memory-hungry processes.
+![Memory](images/memory.png)
+
+### Network
+Download/upload gauges, selectable traffic history, interface details, IP addresses, DNS servers, and public IP lookup.
+![Network](images/network.png)
+
+### Disk
+Volume usage gauges, I/O throughput, and top processes hitting the disk.
+![Disk](images/disk.png)
+
+### Battery
+Health, cycle count, adapter info, power draw, and charging status.
+![Battery](images/battery.png)
 
 ## Requirements
 
