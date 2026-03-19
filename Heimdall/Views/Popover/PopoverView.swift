@@ -9,6 +9,7 @@ struct PopoverView: View {
     @Environment(NetworkState.self) private var network
     @Environment(BatteryState.self) private var battery
     @Environment(ProfileState.self) private var profileState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -106,9 +107,7 @@ struct PopoverView: View {
             // Actions
             VStack(spacing: 0) {
                 Button(action: {
-                    if let window = NSApp.windows.first(where: { $0.title == "Heimdall" || $0.identifier?.rawValue.contains("main") == true }) {
-                        window.makeKeyAndOrderFront(nil)
-                    }
+                    openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }) {
                     HStack {
