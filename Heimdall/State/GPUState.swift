@@ -3,6 +3,7 @@ import Foundation
 @Observable
 class GPUState {
     var usage = GPUUsage()
+    var topProcesses: [TopProcess] = []
     var historyRange: HistoryRange = .max
     var history = RingBuffer<GPUSnapshot>(capacity: 1800)
 

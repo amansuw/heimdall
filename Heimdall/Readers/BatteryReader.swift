@@ -11,7 +11,10 @@ class BatteryReader {
         var info = BatteryInfo()
 
         let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
-        let sources = IOPSCopyPowerSourcesList(snapshot).takeRetainedValue() as? [CFTypeRef] ?? []
+        let sourcesRef = IOPSCopyPowerSourcesList(snapshot).takeRetainedValue()
+        guard let sources = sourcesRef as CFArray? as? [CFTypeRef], !sources.isEmpty else {
+            return BatteryReaderResult(battery: info)
+        }
 
         guard let source = sources.first,
               let desc = IOPSGetPowerSourceDescription(snapshot, source).takeUnretainedValue() as? [String: Any] else {
@@ -63,21 +66,19 @@ class BatteryReader {
         if let cycles = dict["CycleCount"] as? Int { info.cycleCount = cycles }
         if let designCap = dict["DesignCapacity"] as? Int { info.designCapacity = designCap }
 
-        // AppleRawMaxCapacity is the true degraded maximum (what macOS shows as "Maximum Capacity")
-        // MaxCapacity can sometimes report the current charge level on newer Apple Silicon
-        let rawMax = dict["AppleRawMaxCapacity"] as? Int
-        let nominalMax = dict["NominalChargeCapacity"] as? Int
-        let ioMaxCap = dict["MaxCapacity"] as? Int
-
-        // Use the best available value for health calculation
-        let healthCapacity = rawMax ?? nominalMax ?? ioMaxCap
-        if let hc = healthCapacity, info.designCapacity > 0 {
-            info.healthPercent = Double(hc) / Double(info.designCapacity) * 100
+        // Try to get max capacity from BatteryData (nested) first, then fall back to AppleRawMaxCapacity
+        var maxCap = 0
+        if let batteryData = dict["BatteryData"] as? [String: Any],
+           let fcc = batteryData["FccComp1"] as? Int, fcc > 0 {
+            maxCap = fcc
+        } else if let rawMax = dict["AppleRawMaxCapacity"] as? Int, rawMax > 0 {
+            maxCap = rawMax
         }
-
-        // For display, use MaxCapacity (mAh shown to user)
-        if let maxCap = ioMaxCap {
+        if maxCap > 0 {
             info.maxCapacity = maxCap
+            if info.designCapacity > 0 {
+                info.healthPercent = Double(maxCap) / Double(info.designCapacity) * 100
+            }
         }
 
         if let temp = dict["Temperature"] as? Int { info.temperature = Double(temp) / 100.0 }

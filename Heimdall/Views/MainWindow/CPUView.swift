@@ -31,32 +31,74 @@ struct CPUView: View {
                 }
                 .padding(.horizontal)
 
-                // Per-core bars
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Per-Core Usage").font(.headline)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(cpu.usage.perCore.count, 12)), spacing: 4) {
-                        ForEach(cpu.usage.perCore) { core in
-                            VStack(spacing: 2) {
-                                GeometryReader { geo in
-                                    let height = geo.size.height * CGFloat(min(core.usage / 100, 1))
-                                    VStack {
-                                        Spacer()
-                                        Rectangle()
-                                            .fill(core.isEfficiency ? Color.green : Color.blue)
-                                            .frame(height: height)
+                // Per-core bars - P-Cores
+                let pCores = cpu.usage.perCore.filter { !$0.isEfficiency }
+                let eCores = cpu.usage.perCore.filter { $0.isEfficiency }
+
+                if !pCores.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("P-Core Usage").font(.headline)
+                            Spacer()
+                            Text("\(pCores.count) cores").font(.caption).foregroundStyle(.secondary)
+                        }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(pCores.count, 8)), spacing: 4) {
+                            ForEach(pCores) { core in
+                                VStack(spacing: 2) {
+                                    GeometryReader { geo in
+                                        let height = geo.size.height * CGFloat(min(core.usage / 100, 1))
+                                        VStack {
+                                            Spacer()
+                                            Rectangle()
+                                                .fill(Color.blue)
+                                                .frame(height: height)
+                                        }
                                     }
+                                    .frame(height: 40)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 2))
+                                    Text("\(core.id)").font(.system(size: 7)).foregroundStyle(.secondary)
                                 }
-                                .frame(height: 40)
-                                .background(Color.secondary.opacity(0.1))
-                                .clipShape(RoundedRectangle(cornerRadius: 2))
-                                Text("\(core.id)").font(.system(size: 7)).foregroundStyle(.secondary)
                             }
                         }
                     }
+                    .padding()
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
                 }
-                .padding()
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal)
+
+                // Per-core bars - E-Cores
+                if !eCores.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("E-Core Usage").font(.headline)
+                            Spacer()
+                            Text("\(eCores.count) cores").font(.caption).foregroundStyle(.secondary)
+                        }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(eCores.count, 8)), spacing: 4) {
+                            ForEach(eCores) { core in
+                                VStack(spacing: 2) {
+                                    GeometryReader { geo in
+                                        let height = geo.size.height * CGFloat(min(core.usage / 100, 1))
+                                        VStack {
+                                            Spacer()
+                                            Rectangle()
+                                                .fill(Color.green)
+                                                .frame(height: height)
+                                        }
+                                    }
+                                    .frame(height: 40)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 2))
+                                    Text("\(core.id)").font(.system(size: 7)).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                }
 
                 // Usage history
                 VStack(alignment: .leading, spacing: 8) {

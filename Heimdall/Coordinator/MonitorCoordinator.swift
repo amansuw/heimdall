@@ -192,6 +192,7 @@ class MonitorCoordinator {
         let cpuProcs = processReader.readTopCPU()
         let ramProcs = processReader.readTopRAM()
         let diskProcs = processReader.readTopDiskIO()
+        let netProcs = processReader.readTopNetwork()
 
         // Disk space every 2nd slow tick (20s)
         var diskSpace: DiskSpaceResult?
@@ -216,6 +217,8 @@ class MonitorCoordinator {
             self.cpuState?.topProcesses = cpuProcs
             self.ramState?.topProcesses = ramProcs
             self.diskState?.topProcesses = diskProcs
+            self.networkState?.topProcesses = netProcs
+            self.gpuState?.topProcesses = cpuProcs
             if let d = diskSpace { self.diskState?.applySpace(d) }
             self.batteryState?.apply(batteryResult)
         }

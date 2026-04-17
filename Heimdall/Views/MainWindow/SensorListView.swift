@@ -53,23 +53,35 @@ struct SensorListView: View {
             .padding(.horizontal)
             .padding(.bottom, 8)
 
-            // Sensor table
-            List(filteredReadings) { reading in
-                HStack {
-                    Image(systemName: reading.category.icon)
-                        .foregroundStyle(categoryColor(reading.category))
-                        .frame(width: 20)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(reading.name).font(.callout)
-                        Text(reading.key).font(.caption2).foregroundStyle(.tertiary)
+            // Sensor grid
+            let columns = [
+                GridItem(.adaptive(minimum: 180, maximum: 250))
+            ]
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(filteredReadings) { reading in
+                        HStack {
+                            Image(systemName: reading.category.icon)
+                                .foregroundStyle(categoryColor(reading.category))
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(reading.name).font(.callout)
+                                Text(reading.key).font(.caption2).foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            Text(reading.formattedValue)
+                                .font(.callout).fontWeight(.medium).fontDesign(.rounded)
+                                .foregroundStyle(categoryColor(reading.category))
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
                     }
-                    Spacer()
-                    Text(reading.formattedValue)
-                        .font(.callout).fontWeight(.medium).fontDesign(.rounded)
-                        .foregroundStyle(categoryColor(reading.category))
                 }
+                .padding()
             }
-            .listStyle(.inset(alternatesRowBackgrounds: true))
         }
         .background(Color(nsColor: .windowBackgroundColor))
     }

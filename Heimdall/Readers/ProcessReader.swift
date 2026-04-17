@@ -16,6 +16,61 @@ class ProcessReader {
         readTop(limit: limit, sortBy: .diskIO)
     }
 
+    func readTopNetwork(limit: Int = 8) -> [TopProcess] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
+        process.arguments = ["-P", "-L", "1", "-J", "bytes_in,bytes_out"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+
+        var processes: [TopProcess] = []
+        var seenNames = Set<String>()
+        let lines = output.components(separatedBy: "\n")
+
+        for line in lines.dropFirst() {
+            let parts = line.split(separator: ",")
+            guard parts.count >= 3 else { continue }
+
+            var name = String(parts[0]).trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, name != "process" else { continue }
+
+            // Strip PID suffix (e.g., "mDNSResponder.497" -> "mDNSResponder")
+            if let dotRange = name.range(of: "."), Int(name[dotRange.upperBound...]) != nil {
+                name = String(name[..<dotRange.lowerBound])
+            }
+
+            // Skip duplicates
+            guard !seenNames.contains(name) else { continue }
+            seenNames.insert(name)
+
+            let bytesIn = Double(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+            let bytesOut = Double(parts[2].trimmingCharacters(in: .whitespaces)) ?? 0
+
+            if bytesIn > 0 || bytesOut > 0 {
+                processes.append(TopProcess(
+                    id: Int32(processes.count),
+                    name: name,
+                    value: bytesIn + bytesOut,
+                    formattedValue: ByteFormatter.format(UInt64(bytesIn + bytesOut))
+                ))
+            }
+        }
+
+        return Array(processes.sorted { $0.value > $1.value }.prefix(limit))
+    }
+
     private enum SortMetric { case cpu, ram, diskIO }
 
     private func readTop(limit: Int, sortBy: SortMetric) -> [TopProcess] {

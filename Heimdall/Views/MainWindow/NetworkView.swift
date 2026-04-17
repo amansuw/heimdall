@@ -39,7 +39,21 @@ struct NetworkView: View {
                 // History chart
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Traffic History").font(.headline)
-                    let historyArray = net.history.toArray()
+                    @Bindable var netBinding = net
+                    HStack(spacing: 6) {
+                        Text("Range")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Range", selection: $netBinding.historyRange) {
+                            ForEach(HistoryRange.allCases) { range in
+                                Text(range.rawValue).tag(range)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    let historyArray = net.filteredHistory
                     if historyArray.count >= 2 {
                         CanvasMultiLineChart(
                             series: [
@@ -65,11 +79,17 @@ struct NetworkView: View {
                 // Totals
                 HStack(spacing: 12) {
                     StatCard(title: "Total Download", value: ByteFormatter.format(net.stats.totalDownload),
-                             icon: "arrow.down.doc.fill", color: .blue)
+                           icon: "arrow.down.doc.fill", color: .blue)
                     StatCard(title: "Total Upload", value: ByteFormatter.format(net.stats.totalUpload),
-                             icon: "arrow.up.doc.fill", color: .green)
+                           icon: "arrow.up.doc.fill", color: .green)
                 }
                 .padding(.horizontal)
+
+                // Top processes using bandwidth
+                if !net.topProcesses.isEmpty {
+                    ProcessListView(title: "Top Bandwidth Processes", processes: net.topProcesses)
+                        .padding(.horizontal)
+                }
 
                 // Interface details
                 if let iface = net.stats.activeInterface {

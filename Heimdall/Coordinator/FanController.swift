@@ -350,7 +350,7 @@ class FanController {
 
         helperQueue.async { [weak self] in
             guard let self else { return }
-            for retry in 0..<3 {
+            for _ in 0..<3 {
                 for (i, fan) in fans.enumerated() {
                     let speed = fan.minSpeed + (fan.maxSpeed - fan.minSpeed) * (percentage / 100.0)
                     _ = self.setFanModeWrite(fanIndex: fan.index, mode: .forced)
@@ -401,7 +401,7 @@ class FanController {
 
         helperQueue.async { [weak self] in
             guard let self else { return }
-            for retry in 0..<3 {
+            for _ in 0..<3 {
                 for (i, fan) in fans.enumerated() {
                     let speed = fan.minSpeed + (fan.maxSpeed - fan.minSpeed) * (pct / 100.0)
                     _ = self.setFanModeWrite(fanIndex: fan.index, mode: .forced)
@@ -454,7 +454,7 @@ class FanController {
 
         helperQueue.async { [weak self] in
             guard let self else { return }
-            for retry in 0..<3 {
+            for _ in 0..<3 {
                 for (i, fan) in fans.enumerated() {
                     let speed = fan.minSpeed + (fan.maxSpeed - fan.minSpeed) * (percentage / 100.0)
                     _ = self.setFanModeWrite(fanIndex: fan.index, mode: .forced)

@@ -80,6 +80,12 @@ struct GPUView: View {
                 .padding()
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
+
+                // Top GPU processes
+                if !gpu.topProcesses.isEmpty {
+                    ProcessListView(title: "Top GPU Processes", processes: gpu.topProcesses)
+                        .padding(.horizontal)
+                }
             }
             .padding(.vertical)
         }
