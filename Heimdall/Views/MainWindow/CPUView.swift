@@ -169,7 +169,7 @@ struct CPUView: View {
                 .padding(.horizontal)
 
                 // Top processes
-                ProcessListView(title: "Top CPU Processes", processes: cpu.topProcesses)
+                ProcessListView(title: "Top CPU Processes", processes: cpu.topProcesses, processHistory: cpu.processHistory)
                     .padding(.horizontal)
             }
             .padding(.vertical)
@@ -189,6 +189,7 @@ struct CPUView: View {
 struct ProcessListView: View {
     let title: String
     let processes: [TopProcess]
+    var processHistory: ProcessHistory?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -197,7 +198,23 @@ struct ProcessListView: View {
                 Text("No data").font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
             } else {
                 ForEach(processes) { proc in
-                    HStack {
+                    HStack(spacing: 8) {
+                        if proc.canTerminate {
+                            Button {
+                                processHistory?.markTerminated(pid: proc.pid, name: proc.name)
+                                ProcessTerminator.terminate(pid: proc.pid)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 16, height: 16)
+                                    .background(Color.secondary.opacity(0.15), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Quit \(proc.name)")
+                        } else {
+                            Color.clear.frame(width: 16, height: 16)
+                        }
                         Text(proc.name).font(.callout).lineLimit(1)
                         Spacer()
                         Text(proc.formattedValue).font(.callout).fontWeight(.medium).fontDesign(.rounded)

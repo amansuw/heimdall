@@ -81,22 +81,15 @@ struct PopoverView: View {
 
             Divider().padding(.horizontal, 8)
 
-            // Fan quick controls
+            // Fan profiles
             HStack(spacing: 4) {
-                PopoverFanButton(label: "Auto", isActive: fan.unifiedSpeedLabel == "Auto") {
-                    NotificationCenter.default.post(name: .fanSetAllAuto, object: nil)
-                }
-                PopoverFanButton(label: "25%", isActive: fan.unifiedSpeedLabel == "25%") {
-                    NotificationCenter.default.post(name: .fanSetAllSpeed, object: 25.0)
-                }
-                PopoverFanButton(label: "50%", isActive: fan.unifiedSpeedLabel == "50%") {
-                    NotificationCenter.default.post(name: .fanSetAllSpeed, object: 50.0)
-                }
-                PopoverFanButton(label: "75%", isActive: fan.unifiedSpeedLabel == "75%") {
-                    NotificationCenter.default.post(name: .fanSetAllSpeed, object: 75.0)
-                }
-                PopoverFanButton(label: "Max", isActive: fan.unifiedSpeedLabel == "Max") {
-                    NotificationCenter.default.post(name: .fanSetAllSpeed, object: 100.0)
+                ForEach(profileState.menuBarProfiles) { profile in
+                    PopoverFanButton(
+                        label: profile.name,
+                        isActive: profileState.activeProfile?.id == profile.id
+                    ) {
+                        activateProfile(profile)
+                    }
                 }
             }
             .padding(.horizontal, 10)
@@ -140,6 +133,28 @@ struct PopoverView: View {
     private func tempColor(_ t: Double) -> Color {
         if t <= 0 { return .gray }; if t < 50 { return .green }; if t < 70 { return .yellow }; if t < 85 { return .orange }; return .red
     }
+
+    private func activateProfile(_ profile: FanProfile) {
+        profileState.setActiveProfile(profile)
+
+        switch profile.mode {
+        case .automatic:
+            fan.controlMode = .automatic
+            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.automatic)
+        case .manual:
+            if let speed = profile.manualSpeedPercentage {
+                fan.manualSpeedPercentage = speed
+                fan.controlMode = .manual
+                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.manual)
+            }
+        case .curve:
+            if let curve = profile.curve {
+                fan.activeCurve = curve
+                fan.controlMode = .curve
+                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
+            }
+        }
+    }
 }
 
 struct MiniStatCard: View {
@@ -181,6 +196,8 @@ struct PopoverFanButton: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity).padding(.vertical, 4)
                 .background(isActive ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(isActive ? Color.accentColor : .clear, lineWidth: 1))

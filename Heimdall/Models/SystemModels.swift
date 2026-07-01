@@ -3,10 +3,16 @@ import Foundation
 // MARK: - Top Process
 
 struct TopProcess: Identifiable, Sendable {
-    let id: Int32
+    let pid: Int32
     let name: String
     let value: Double
     let formattedValue: String
+
+    var id: String { pid > 0 ? "\(pid)" : "net-\(name)" }
+
+    var canTerminate: Bool {
+        pid > 1 && pid != ProcessInfo.processInfo.processIdentifier
+    }
 }
 
 // MARK: - CPU

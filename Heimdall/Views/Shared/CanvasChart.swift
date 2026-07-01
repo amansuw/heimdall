@@ -223,6 +223,7 @@ struct CanvasLineChart: View {
 
             ChartTooltip(values: [(color, label, tooltipFormatter(val))])
                 .fixedSize()
+                .allowsHitTesting(false)
                 .position(x: min(max(xPos, chartLeftPad + 40), geo.size.width - 40), y: 16)
         }
     }
@@ -352,6 +353,7 @@ struct CanvasMultiLineChart: View {
 
             ChartTooltip(values: items)
                 .fixedSize()
+                .allowsHitTesting(false)
                 .position(x: min(max(xPos, chartLeftPad + 50), geo.size.width - 50), y: 20)
         }
     }

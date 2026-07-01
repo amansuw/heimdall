@@ -78,7 +78,7 @@ struct DiskView: View {
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
 
-                ProcessListView(title: "Top Disk Processes", processes: disk.topProcesses)
+                ProcessListView(title: "Top Disk Processes", processes: disk.topProcesses, processHistory: disk.processHistory)
                     .padding(.horizontal)
             }
             .padding(.vertical)

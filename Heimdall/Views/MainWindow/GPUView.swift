@@ -83,7 +83,7 @@ struct GPUView: View {
 
                 // Top GPU processes
                 if !gpu.topProcesses.isEmpty {
-                    ProcessListView(title: "Top GPU Processes", processes: gpu.topProcesses)
+                    ProcessListView(title: "Top GPU Processes", processes: gpu.topProcesses, processHistory: gpu.processHistory)
                         .padding(.horizontal)
                 }
             }

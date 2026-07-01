@@ -66,18 +66,28 @@ class BatteryReader {
         if let cycles = dict["CycleCount"] as? Int { info.cycleCount = cycles }
         if let designCap = dict["DesignCapacity"] as? Int { info.designCapacity = designCap }
 
-        // Try to get max capacity from BatteryData (nested) first, then fall back to AppleRawMaxCapacity
-        var maxCap = 0
-        if let batteryData = dict["BatteryData"] as? [String: Any],
-           let fcc = batteryData["FccComp1"] as? Int, fcc > 0 {
-            maxCap = fcc
-        } else if let rawMax = dict["AppleRawMaxCapacity"] as? Int, rawMax > 0 {
-            maxCap = rawMax
+        if let rawCurrent = dict["AppleRawCurrentCapacity"] as? Int, rawCurrent > 0 {
+            info.currentCapacity = rawCurrent
         }
-        if maxCap > 0 {
-            info.maxCapacity = maxCap
+
+        // NominalChargeCapacity matches Apple Settings "Maximum Capacity" health %
+        var fullChargeCap = 0
+        if let nominal = dict["NominalChargeCapacity"] as? Int, nominal > 0 {
+            fullChargeCap = nominal
+        } else if let rawMax = dict["AppleRawMaxCapacity"] as? Int, rawMax > 0 {
+            fullChargeCap = rawMax
+        } else if let batteryData = dict["BatteryData"] as? [String: Any],
+                  let fcc = batteryData["FccComp2"] as? Int, fcc > 0 {
+            fullChargeCap = fcc
+        } else if let batteryData = dict["BatteryData"] as? [String: Any],
+                  let fcc = batteryData["FccComp1"] as? Int, fcc > 0 {
+            fullChargeCap = fcc
+        }
+
+        if fullChargeCap > 0 {
+            info.maxCapacity = fullChargeCap
             if info.designCapacity > 0 {
-                info.healthPercent = Double(maxCap) / Double(info.designCapacity) * 100
+                info.healthPercent = min(100, Double(fullChargeCap) / Double(info.designCapacity) * 100)
             }
         }
 

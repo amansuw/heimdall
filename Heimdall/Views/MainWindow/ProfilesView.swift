@@ -7,7 +7,20 @@ class ProfileState {
     var customCurve: FanCurve?
 
     var latestCustomProfile: FanProfile? {
-        profiles.first(where: { !$0.isBuiltIn })
+        profiles.last(where: { !$0.isBuiltIn })
+    }
+
+    func profile(named name: String) -> FanProfile? {
+        profiles.first(where: { $0.name == name })
+    }
+
+    /// Default, Silent, Performance, and the latest custom profile (when present).
+    var menuBarProfiles: [FanProfile] {
+        var items = ["Default", "Silent", "Performance"].compactMap { profile(named: $0) }
+        if let latest = latestCustomProfile {
+            items.append(latest)
+        }
+        return items
     }
 
     func setActiveProfile(_ profile: FanProfile?) {

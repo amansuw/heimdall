@@ -80,7 +80,7 @@ struct RAMView: View {
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
 
-                ProcessListView(title: "Top Memory Processes", processes: ram.topProcesses)
+                ProcessListView(title: "Top Memory Processes", processes: ram.topProcesses, processHistory: ram.processHistory)
                     .padding(.horizontal)
             }
             .padding(.vertical)

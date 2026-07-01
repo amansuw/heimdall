@@ -35,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let sensorState = SensorState()
     let fanState = FanState()
     let profileState = ProfileState()
+    let processHistory = ProcessHistory()
 
     // Coordinator & controllers
     private let coordinator = MonitorCoordinator()
@@ -79,6 +80,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.sensorState = sensorState
         coordinator.fanState = fanState
         coordinator.fanController = fanController
+        coordinator.processHistory = processHistory
+
+        cpuState.processHistory = processHistory
+        gpuState.processHistory = processHistory
+        ramState.processHistory = processHistory
+        diskState.processHistory = processHistory
+        networkState.processHistory = processHistory
 
         fanController.fanState = fanState
         fanController.sensorState = sensorState

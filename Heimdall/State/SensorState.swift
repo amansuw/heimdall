@@ -5,17 +5,15 @@ enum HistoryRange: String, CaseIterable, Identifiable, Sendable {
     case fiveMinutes = "5m"
     case thirtyMinutes = "30m"
     case sixtyMinutes = "60m"
-    case max = "Max"
 
     var id: String { rawValue }
 
-    var window: TimeInterval? {
+    var window: TimeInterval {
         switch self {
         case .oneMinute: return 60
         case .fiveMinutes: return 5 * 60
         case .thirtyMinutes: return 30 * 60
         case .sixtyMinutes: return 60 * 60
-        case .max: return nil
         }
     }
 }
@@ -29,7 +27,7 @@ class SensorState {
     var powerReadings: [SensorReading] = []
     var isMonitoring = false
     var isDiscovering = true
-    var historyRange: HistoryRange = .max
+    var historyRange: HistoryRange = .fiveMinutes
     var temperatureHistory = RingBuffer<TemperatureSnapshot>(capacity: 3600)
 
     var averageCPUTemp: Double {
@@ -77,8 +75,7 @@ class SensorState {
 
     var filteredHistory: [TemperatureSnapshot] {
         let all = temperatureHistory.toArray()
-        guard let window = historyRange.window else { return all }
-        let cutoff = Date().addingTimeInterval(-window)
+        let cutoff = Date().addingTimeInterval(-historyRange.window)
         return all.filter { $0.timestamp >= cutoff }
     }
 

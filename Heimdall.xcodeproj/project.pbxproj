@@ -22,6 +22,7 @@
 		4389762BD2D947579F65B638 /* RAMView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41F7776577146458CA5C5F8 /* RAMView.swift */; };
 		47D05CEC253E4CC281272471 /* SMCKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1565C6609A432C93D0F36A /* SMCKit.swift */; };
 		4E3250D9EBBE4395BBECAA98 /* SensorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769C877A946641FDA559AF17 /* SensorState.swift */; };
+		B1C2D3E4F5A60718293B4C5D /* ProcessHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* ProcessHistory.swift */; };
 		5DCD35588D354D3EBDBB14A9 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FDB9987BCA4931B6C85126 /* DashboardView.swift */; };
 		63B69E01CF914DDF825CFB20 /* FanState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BB91150E9A748539A37F0BD /* FanState.swift */; };
 		6F7FB4700A1F43E19C6A9BF7 /* HeimdallApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7F826878AA439E843EC207 /* HeimdallApp.swift */; };
@@ -81,6 +82,7 @@
 		6F8D55A52CA144BABB0366C6 /* NetworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkView.swift; sourceTree = "<group>"; };
 		72684ADCAF1E46DD950E4A69 /* ProcessReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessReader.swift; sourceTree = "<group>"; };
 		769C877A946641FDA559AF17 /* SensorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorState.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5C /* ProcessHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessHistory.swift; sourceTree = "<group>"; };
 		79A2BD30CBAB4CC3BD4F5A3B /* FanControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanControlView.swift; sourceTree = "<group>"; };
 		7F1565C6609A432C93D0F36A /* SMCKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCKit.swift; sourceTree = "<group>"; };
 		807132A334504906B8350E24 /* SMCDaemon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCDaemon.swift; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 				A7DCE407C96D44559BB943A4 /* NetworkState.swift */,
 				1F4550B8AA9447B9A18A1B03 /* RAMState.swift */,
 				769C877A946641FDA559AF17 /* SensorState.swift */,
+				A1B2C3D4E5F60718293A4B5C /* ProcessHistory.swift */,
 			);
 			path = State;
 			sourceTree = "<group>";
@@ -382,6 +385,7 @@
 				76A62A9546D547D4B2E3C77E /* NetworkState.swift in Sources */,
 				801BF88100A0467D924CEEDB /* RAMState.swift in Sources */,
 				4E3250D9EBBE4395BBECAA98 /* SensorState.swift in Sources */,
+				B1C2D3E4F5A60718293B4C5D /* ProcessHistory.swift in Sources */,
 				396FCCBA122A43B38F1E4193 /* BatteryView.swift in Sources */,
 				B3B7F4B9434E46B1B2AD2204 /* CPUView.swift in Sources */,
 				773B81DD26534E02B4E10C97 /* ContentView.swift in Sources */,

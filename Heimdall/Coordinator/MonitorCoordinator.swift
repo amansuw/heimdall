@@ -21,6 +21,7 @@ class MonitorCoordinator {
     let batteryReader = BatteryReader()
     let sensorReader = SensorReader()
     let processReader = ProcessReader()
+    var processHistory: ProcessHistory!
 
     // Fan controller
     var fanController: FanController?
@@ -189,10 +190,7 @@ class MonitorCoordinator {
 
         slowTickCount += 1
 
-        let cpuProcs = processReader.readTopCPU()
-        let ramProcs = processReader.readTopRAM()
-        let diskProcs = processReader.readTopDiskIO()
-        let netProcs = processReader.readTopNetwork()
+        let snapshot = processReader.readTickSnapshot()
 
         // Disk space every 2nd slow tick (20s)
         var diskSpace: DiskSpaceResult?
@@ -214,11 +212,7 @@ class MonitorCoordinator {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.cpuState?.topProcesses = cpuProcs
-            self.ramState?.topProcesses = ramProcs
-            self.diskState?.topProcesses = diskProcs
-            self.networkState?.topProcesses = netProcs
-            self.gpuState?.topProcesses = cpuProcs
+            self.processHistory.append(snapshot)
             if let d = diskSpace { self.diskState?.applySpace(d) }
             self.batteryState?.apply(batteryResult)
         }

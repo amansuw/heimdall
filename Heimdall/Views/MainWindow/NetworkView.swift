@@ -87,7 +87,7 @@ struct NetworkView: View {
 
                 // Top processes using bandwidth
                 if !net.topProcesses.isEmpty {
-                    ProcessListView(title: "Top Bandwidth Processes", processes: net.topProcesses)
+                    ProcessListView(title: "Top Bandwidth Processes", processes: net.topProcesses, processHistory: net.processHistory)
                         .padding(.horizontal)
                 }
 

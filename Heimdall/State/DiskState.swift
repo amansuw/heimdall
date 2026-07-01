@@ -4,14 +4,18 @@ import Foundation
 class DiskState {
     var disks: [DiskInfo] = []
     var io = DiskIO()
-    var topProcesses: [TopProcess] = []
-    var historyRange: HistoryRange = .max
+    var topProcesses: [TopProcess] {
+        guard let processHistory else { return [] }
+        let _ = processHistory.revision
+        return processHistory.topDiskIO(window: historyRange.window, limit: 8)
+    }
+    var historyRange: HistoryRange = .fiveMinutes
     var ioHistory = RingBuffer<DiskIOSnapshot>(capacity: 1800)
+    var processHistory: ProcessHistory?
 
     var filteredHistory: [DiskIOSnapshot] {
         let all = ioHistory.toArray()
-        guard let window = historyRange.window else { return all }
-        let cutoff = Date().addingTimeInterval(-window)
+        let cutoff = Date().addingTimeInterval(-historyRange.window)
         return all.filter { $0.timestamp >= cutoff }
     }
 
