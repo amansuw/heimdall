@@ -7,10 +7,16 @@ struct ProcessTickMetrics: Sendable {
     let pageIns: UInt64
 }
 
+struct ProcessGPUMetrics: Sendable {
+    let name: String
+    let gpuTimeNs: UInt64
+}
+
 struct ProcessTickSnapshot: Sendable {
     let timestamp: Date
     let processes: [Int32: ProcessTickMetrics]
     let networkByName: [String: UInt64]
+    let gpuByPID: [Int32: ProcessGPUMetrics]
 }
 
 @Observable
@@ -47,8 +53,26 @@ final class ProcessHistory {
                 guard deltaNs > 0, elapsed > 0 else { return 0 }
                 return Double(deltaNs) / 1_000_000_000.0 / elapsed / Double(max(coreCount, 1)) * 100.0
             },
-            format: { String(format: "%.1f%%", $0) }
+            format: { Self.formatPercent($0) }
         )
+    }
+
+    func topGPU(window: TimeInterval, limit: Int) -> [TopProcess] {
+        rankGPUByDelta(
+            window: window,
+            limit: limit,
+            value: { last, first, elapsed in
+                let deltaNs = last.gpuTimeNs > first.gpuTimeNs ? last.gpuTimeNs - first.gpuTimeNs : 0
+                guard deltaNs > 0, elapsed > 0 else { return 0 }
+                return Double(deltaNs) / 1_000_000_000.0 / elapsed * 100.0
+            },
+            format: { Self.formatPercent($0) }
+        )
+    }
+
+    private static func formatPercent(_ value: Double) -> String {
+        if value > 0 && value < 0.1 { return "<0.1%" }
+        return String(format: "%.1f%%", value)
     }
 
     func topRAM(window: TimeInterval, limit: Int) -> [TopProcess] {
@@ -123,6 +147,47 @@ final class ProcessHistory {
     private func ticks(in window: TimeInterval) -> [ProcessTickSnapshot] {
         let cutoff = Date().addingTimeInterval(-window)
         return ticks.toArray().filter { $0.timestamp >= cutoff }
+    }
+
+    private func rankGPUByDelta(
+        window: TimeInterval,
+        limit: Int,
+        value: (ProcessGPUMetrics, ProcessGPUMetrics, TimeInterval) -> Double,
+        format: (Double) -> String
+    ) -> [TopProcess] {
+        let windowTicks = ticks(in: window)
+        guard !windowTicks.isEmpty else { return [] }
+
+        var firstByPID: [Int32: ProcessGPUMetrics] = [:]
+        var lastByPID: [Int32: ProcessGPUMetrics] = [:]
+        var firstTimestamp: Date?
+        var lastTimestamp: Date?
+
+        for tick in windowTicks {
+            if firstTimestamp == nil { firstTimestamp = tick.timestamp }
+            lastTimestamp = tick.timestamp
+            for (pid, metrics) in tick.gpuByPID {
+                if firstByPID[pid] == nil {
+                    firstByPID[pid] = metrics
+                }
+                lastByPID[pid] = metrics
+            }
+        }
+
+        let elapsed = lastTimestamp?.timeIntervalSince(firstTimestamp ?? lastTimestamp ?? Date()) ?? 0
+
+        return lastByPID.compactMap { pid, last -> (Int32, String, Double)? in
+            guard isListed(pid: pid, name: last.name) else { return nil }
+            guard let first = firstByPID[pid] else { return nil }
+            let metric = value(last, first, elapsed)
+            guard metric > 0 else { return nil }
+            return (pid, last.name, metric)
+        }
+        .sorted { $0.2 > $1.2 }
+        .prefix(limit)
+        .map { pid, name, metric in
+            TopProcess(pid: pid, name: name, value: metric, formattedValue: format(metric))
+        }
     }
 
     private func rankByDelta(

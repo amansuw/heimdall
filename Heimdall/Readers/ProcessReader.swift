@@ -1,4 +1,5 @@
 import Foundation
+import IOKit
 
 class ProcessReader {
     private var pidBuffer = [Int32](repeating: 0, count: 2048)
@@ -9,7 +10,8 @@ class ProcessReader {
         return ProcessTickSnapshot(
             timestamp: timestamp,
             processes: readAllProcessMetrics(),
-            networkByName: readNetworkMetrics()
+            networkByName: readNetworkMetrics(),
+            gpuByPID: readGPUMetrics()
         )
     }
 
@@ -87,6 +89,81 @@ class ProcessReader {
         }
 
         return metrics
+    }
+
+    private func readGPUMetrics() -> [Int32: ProcessGPUMetrics] {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AGXAccelerator"), &iterator) == kIOReturnSuccess else {
+            return [:]
+        }
+        defer { IOObjectRelease(iterator) }
+
+        var metrics: [Int32: ProcessGPUMetrics] = [:]
+
+        var accelerator = IOIteratorNext(iterator)
+        while accelerator != 0 {
+            defer { IOObjectRelease(accelerator); accelerator = IOIteratorNext(iterator) }
+
+            var childIterator: io_iterator_t = 0
+            guard IORegistryEntryGetChildIterator(accelerator, kIOServicePlane, &childIterator) == kIOReturnSuccess else {
+                continue
+            }
+            defer { IOObjectRelease(childIterator) }
+
+            var child = IOIteratorNext(childIterator)
+            while child != 0 {
+                defer { IOObjectRelease(child); child = IOIteratorNext(childIterator) }
+
+                guard let creator = IORegistryEntryCreateCFProperty(
+                    child, "IOUserClientCreator" as CFString, kCFAllocatorDefault, 0
+                )?.takeRetainedValue() as? String,
+                      let (pid, name) = parseGPUClientCreator(creator) else {
+                    continue
+                }
+
+                let gpuTimeNs = sumAccumulatedGPUTime(from: child)
+                guard gpuTimeNs > 0 else { continue }
+
+                if let existing = metrics[pid] {
+                    metrics[pid] = ProcessGPUMetrics(name: name, gpuTimeNs: existing.gpuTimeNs + gpuTimeNs)
+                } else {
+                    metrics[pid] = ProcessGPUMetrics(name: name, gpuTimeNs: gpuTimeNs)
+                }
+            }
+        }
+
+        return metrics
+    }
+
+    private func parseGPUClientCreator(_ creator: String) -> (pid: Int32, name: String)? {
+        guard creator.hasPrefix("pid ") else { return nil }
+        let remainder = creator.dropFirst(4)
+        guard let commaIndex = remainder.firstIndex(of: ",") else { return nil }
+        let pidString = remainder[..<commaIndex].trimmingCharacters(in: .whitespaces)
+        guard let pid = Int32(pidString) else { return nil }
+        let name = remainder[remainder.index(after: commaIndex)...].trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return nil }
+        return (pid, name)
+    }
+
+    private func sumAccumulatedGPUTime(from entry: io_registry_entry_t) -> UInt64 {
+        guard let appUsage = IORegistryEntryCreateCFProperty(
+            entry, "AppUsage" as CFString, kCFAllocatorDefault, 0
+        )?.takeRetainedValue() as? [[String: Any]] else {
+            return 0
+        }
+
+        var total: UInt64 = 0
+        for usage in appUsage {
+            if let gpuTime = usage["accumulatedGPUTime"] as? UInt64 {
+                total += gpuTime
+            } else if let gpuTime = usage["accumulatedGPUTime"] as? Int {
+                total += UInt64(max(gpuTime, 0))
+            } else if let gpuTime = usage["accumulatedGPUTime"] as? Int64 {
+                total += UInt64(max(gpuTime, 0))
+            }
+        }
+        return total
     }
 }
 

@@ -6,10 +6,9 @@ class GPUState {
     var topProcesses: [TopProcess] {
         guard let processHistory else { return [] }
         let _ = processHistory.revision
-        return processHistory.topCPU(
+        return processHistory.topGPU(
             window: historyRange.window,
-            limit: 8,
-            coreCount: ProcessInfo.processInfo.processorCount
+            limit: 8
         )
     }
     var historyRange: HistoryRange = .fiveMinutes
