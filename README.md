@@ -25,31 +25,47 @@ A native macOS system monitoring utility built for extreme efficiency. Monitors 
 Explore each module below for a closer look at Heimdall's monitoring and control surfaces.
 
 ### Dashboard
+System overview with CPU/GPU temperature cards, selectable temperature history, fan status, and quick fan presets.
 ![Dashboard](images/dashboard.png)
 
-### CPU Insights
-Detailed P/E-core usage breakdown, per-core bars, usage history with selectable range, load averages, clock frequencies, and top CPU processes.
+### CPU
+P/E-core usage gauges, per-core bars, usage history with selectable time range (default 5 minutes), load averages, clock frequencies, and top CPU processes ranked over the selected window with one-click quit.
 ![CPU](images/cpu.png)
 
-### GPU Insights
-GPU utilization gauge, render/tiler split, usage history, and live stats for the current graphics device.
+### GPU
+GPU utilization gauge, render/tiler split, usage history, device stats, and top GPU processes over the selected time range.
 ![GPU](images/gpu.png)
 
 ### Memory
-Live memory pressure, breakdown of app/wired/compressed/swap usage, trend charts, and top memory-hungry processes.
+Live memory pressure, app/wired/compressed/swap breakdown, trend charts, and top memory processes over the selected time range.
 ![Memory](images/memory.png)
 
 ### Network
-Download/upload gauges, selectable traffic history, interface details, IP addresses, DNS servers, and public IP lookup.
+Download/upload gauges, selectable traffic history, interface details, IP addresses, DNS servers, public IP lookup, and top bandwidth processes over the selected window.
 ![Network](images/network.png)
 
 ### Disk
-Volume usage gauges, I/O throughput, and top processes hitting the disk.
+Volume usage gauges, I/O throughput history, and top disk processes over the selected time range.
 ![Disk](images/disk.png)
 
 ### Battery
-Health, cycle count, adapter info, power draw, and charging status.
+Charge level, health percentage aligned with Apple Settings, cycle count, capacity in mAh, adapter info, power draw, and charging status.
 ![Battery](images/battery.png)
+
+### Sensors
+Full SMC sensor grid with search, category filters, and live readings for temperature, voltage, current, and power.
+![Sensors](images/sensors.png)
+
+### Fan Settings
+Fan profiles (Default, Silent, Performance, and custom), control mode picker, per-fan RPM cards, and manual speed control.
+![Fan Settings](images/fansettings.png)
+
+### Fan Curve
+Interactive temperature-to-fan-speed curve editor with draggable control points for custom cooling profiles.
+![Fan Curve](images/fancurve.png)
+
+### Menu Bar Popover
+Compact temperature stats, live chart, system gauges, fan RPMs, and quick profile switching (Default, Silent, Performance, plus your latest custom profile).
 
 ## Requirements
 
@@ -90,6 +106,7 @@ Heimdall/
 │   ├── CPUState.swift, GPUState.swift, RAMState.swift
 │   ├── DiskState.swift, NetworkState.swift, BatteryState.swift
 │   ├── SensorState.swift, FanState.swift
+│   └── ProcessHistory.swift       # Time-windowed process metrics
 ├── Coordinator/
 │   ├── MonitorCoordinator.swift   # Tiered polling, visibility-aware
 │   └── FanController.swift        # Fan mode, curve eval, profiles
