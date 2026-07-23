@@ -28,7 +28,7 @@ class SensorState {
     var isMonitoring = false
     var isDiscovering = true
     var historyRange: HistoryRange = .fiveMinutes
-    var temperatureHistory = RingBuffer<TemperatureSnapshot>(capacity: 3600)
+    var temperatureHistory = RingBuffer<TemperatureSnapshot>(capacity: 900)
 
     var averageCPUTemp: Double {
         let temps = temperatureReadings.filter { $0.key.hasPrefix("TC") || $0.key.hasPrefix("Tc") }
@@ -79,13 +79,15 @@ class SensorState {
         return all.filter { $0.timestamp >= cutoff }
     }
 
-    func apply(_ result: SensorReaderResult) {
+    func apply(_ result: SensorReaderResult, recordHistory: Bool = true) {
         readings = result.all
         temperatureReadings = result.temp
         voltageReadings = result.volt
         currentReadings = result.curr
         powerReadings = result.pow
         isMonitoring = true
-        temperatureHistory.append(result.snapshot)
+        if recordHistory {
+            temperatureHistory.append(result.snapshot)
+        }
     }
 }

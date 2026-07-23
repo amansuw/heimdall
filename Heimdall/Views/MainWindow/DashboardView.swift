@@ -129,16 +129,21 @@ struct DashboardView: View {
 
                         // Latest saved fan curve profile
                         if let latest = profileState.latestCustomProfile {
-                            HStack(spacing: 8) {
+                            HStack(spacing: 10) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Latest Profile").font(.caption2).foregroundStyle(.secondary)
                                     Text(latest.name).font(.caption).fontWeight(.medium)
                                 }
-                                Spacer()
+                                .frame(minWidth: 72, alignment: .leading)
+
                                 if let c = latest.curve {
                                     DashboardCurvePreview(curve: c)
-                                        .frame(width: 80, height: 30)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 48)
+                                } else {
+                                    Spacer(minLength: 0)
                                 }
+
                                 Button("Activate") {
                                     profileState.setActiveProfile(latest)
                                     if let c = latest.curve {
@@ -150,7 +155,7 @@ struct DashboardView: View {
                                 .controlSize(.mini)
                                 .disabled(profileState.activeProfile?.id == latest.id)
                             }
-                            .padding(8)
+                            .padding(10)
                             .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
@@ -229,10 +234,10 @@ struct DashboardCurvePreview: View {
             }
             fillPath.closeSubpath()
             context.fill(fillPath, with: .color(.blue.opacity(0.15)))
-            context.stroke(path, with: .color(.blue.opacity(0.7)), lineWidth: 1)
+            context.stroke(path, with: .color(.blue.opacity(0.75)), lineWidth: 1.5)
         }
-        .background(Color.secondary.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

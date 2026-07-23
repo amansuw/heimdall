@@ -23,8 +23,10 @@ class DiskState {
         disks = result.disks
     }
 
-    func applyIO(_ result: DiskIOResult) {
+    func applyIO(_ result: DiskIOResult, recordHistory: Bool = true) {
         io = result.io
-        ioHistory.append(result.snapshot)
+        if recordHistory {
+            ioHistory.append(result.snapshot)
+        }
     }
 }

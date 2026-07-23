@@ -5,12 +5,12 @@ class ProcessReader {
     private var pidBuffer = [Int32](repeating: 0, count: 2048)
     private var nameBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
 
-    func readTickSnapshot() -> ProcessTickSnapshot {
+    func readTickSnapshot(includeNetwork: Bool = true) -> ProcessTickSnapshot {
         let timestamp = Date()
         return ProcessTickSnapshot(
             timestamp: timestamp,
             processes: readAllProcessMetrics(),
-            networkByName: readNetworkMetrics(),
+            networkByName: includeNetwork ? readNetworkMetrics() : [:],
             gpuByPID: readGPUMetrics()
         )
     }

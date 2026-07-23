@@ -21,13 +21,15 @@ class GPUState {
         return all.filter { $0.timestamp >= cutoff }
     }
 
-    func apply(_ result: GPUReaderResult) {
+    func apply(_ result: GPUReaderResult, recordHistory: Bool = true) {
         usage = result.usage
-        history.append(GPUSnapshot(
-            timestamp: Date(),
-            utilization: result.usage.utilization,
-            renderUtilization: result.usage.renderUtilization,
-            tilerUtilization: result.usage.tilerUtilization
-        ))
+        if recordHistory {
+            history.append(GPUSnapshot(
+                timestamp: Date(),
+                utilization: result.usage.utilization,
+                renderUtilization: result.usage.renderUtilization,
+                tilerUtilization: result.usage.tilerUtilization
+            ))
+        }
     }
 }

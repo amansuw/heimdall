@@ -18,12 +18,14 @@ class NetworkState {
         return all.filter { $0.timestamp >= cutoff }
     }
 
-    func apply(_ result: NetworkReaderResult) {
+    func apply(_ result: NetworkReaderResult, recordHistory: Bool = true) {
         stats.downloadBytesPerSec = result.dlSpeed
         stats.uploadBytesPerSec = result.ulSpeed
         stats.totalDownload = result.totalIn
         stats.totalUpload = result.totalOut
         stats.activeInterface = result.activeIface
-        history.append(result.snapshot)
+        if recordHistory {
+            history.append(result.snapshot)
+        }
     }
 }

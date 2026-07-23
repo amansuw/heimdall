@@ -33,12 +33,14 @@ class CPUState {
         return all.filter { $0.timestamp >= cutoff }
     }
 
-    func apply(_ result: CPUReaderResult) {
+    func apply(_ result: CPUReaderResult, recordHistory: Bool = true) {
         usage = result.usage
         loadAverage = result.load
         uptime = result.uptime
         frequency = result.freq
-        history.append(result.snapshot)
+        if recordHistory {
+            history.append(result.snapshot)
+        }
     }
 
     func applyTopology(total: Int, e: Int, p: Int) {

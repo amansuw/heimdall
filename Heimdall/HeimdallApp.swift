@@ -41,6 +41,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let coordinator = MonitorCoordinator()
     private let fanController = FanController()
     private let statusBarController = StatusBarController()
+    private var menuBarDisplayTimer: DispatchSourceTimer?
+    private var windowVisibilityObservers: [Any] = []
 
     // Notification observers
     private var observers: [Any] = []
@@ -50,6 +52,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupCoordinator()
         setupStatusBar()
         setupNotificationHandlers()
+        setupWindowVisibilityTracking()
         fanController.restoreWriteAccessSilently()
 
         // Discover fans on background queue
@@ -112,15 +115,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController.sensorState = sensorState
         statusBarController.ramState = ramState
         statusBarController.networkState = networkState
+        statusBarController.onPopoverVisibilityChanged = { [weak self] visible in
+            self?.coordinator.setPopoverVisible(visible)
+        }
         statusBarController.setup(popoverContent: hostingController)
 
-        // Update menu bar widget on a timer (separate from data polling)
+        // Menu-bar tint tracks CPU temp — 30s matches background sample rate.
         let displayTimer = DispatchSource.makeTimerSource(queue: .main)
-        displayTimer.schedule(deadline: .now(), repeating: 2.0, leeway: .milliseconds(100))
+        displayTimer.schedule(deadline: .now(), repeating: 30.0, leeway: .seconds(1))
         displayTimer.setEventHandler { [weak self] in
             self?.statusBarController.updateWidget()
         }
         displayTimer.resume()
+        menuBarDisplayTimer = displayTimer
+    }
+
+    private func setupWindowVisibilityTracking() {
+        let center = NotificationCenter.default
+
+        let handler: (Notification) -> Void = { [weak self] _ in
+            self?.refreshMainWindowVisibility()
+        }
+
+        for name in [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+            NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification,
+            NSWindow.willCloseNotification,
+            NSWindow.didChangeOcclusionStateNotification
+        ] {
+            windowVisibilityObservers.append(
+                center.addObserver(forName: name, object: nil, queue: .main, using: handler)
+            )
+        }
+
+        // Initial state after windows exist.
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshMainWindowVisibility()
+        }
+    }
+
+    private func refreshMainWindowVisibility() {
+        // Main dashboard is a large titled window; status-item chrome is not.
+        let visible = NSApp.windows.contains { window in
+            guard window.styleMask.contains(.titled) else { return false }
+            guard window.frame.width >= 700 else { return false }
+            return window.isVisible
+                && !window.isMiniaturized
+                && window.occlusionState.contains(.visible)
+        }
+        coordinator.setWindowVisible(visible)
     }
 
     private func setupNotificationHandlers() {

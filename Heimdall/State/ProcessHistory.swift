@@ -22,12 +22,15 @@ struct ProcessTickSnapshot: Sendable {
 @Observable
 final class ProcessHistory {
     private(set) var revision = 0
-    private var ticks = RingBuffer<ProcessTickSnapshot>(capacity: 400)
+    private var ticks = RingBuffer<ProcessTickSnapshot>(capacity: 90)
     private var terminatedPIDs = Set<Int32>()
     private var terminatedNames = Set<String>()
 
     func append(_ snapshot: ProcessTickSnapshot) {
         ticks.append(snapshot)
+        // Bound terminated-process bookkeeping so it can't grow forever.
+        if terminatedPIDs.count > 400 { terminatedPIDs.removeAll(keepingCapacity: true) }
+        if terminatedNames.count > 400 { terminatedNames.removeAll(keepingCapacity: true) }
         revision += 1
     }
 

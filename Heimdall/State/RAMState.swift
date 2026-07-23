@@ -18,14 +18,16 @@ class RAMState {
         return all.filter { $0.timestamp >= cutoff }
     }
 
-    func apply(_ result: RAMReaderResult) {
+    func apply(_ result: RAMReaderResult, recordHistory: Bool = true) {
         memory = result.memory
-        history.append(RAMSnapshot(
-            timestamp: Date(),
-            usagePercent: result.memory.usagePercent,
-            appBytes: result.memory.app,
-            wiredBytes: result.memory.wired,
-            compressedBytes: result.memory.compressed
-        ))
+        if recordHistory {
+            history.append(RAMSnapshot(
+                timestamp: Date(),
+                usagePercent: result.memory.usagePercent,
+                appBytes: result.memory.app,
+                wiredBytes: result.memory.wired,
+                compressedBytes: result.memory.compressed
+            ))
+        }
     }
 }
