@@ -24,6 +24,7 @@ struct FanProfile: Identifiable, Codable, Sendable {
     }
 
     static let builtInProfiles: [FanProfile] = [
+        FanProfile(name: "Default", mode: .automatic, isBuiltIn: true),
         FanProfile(name: "Silent", mode: .curve, curve: FanCurve(name: "Silent", points: [
             CurvePoint(temperature: 40, fanSpeed: 0),
             CurvePoint(temperature: 60, fanSpeed: 0),
@@ -32,7 +33,6 @@ struct FanProfile: Identifiable, Codable, Sendable {
             CurvePoint(temperature: 95, fanSpeed: 80),
             CurvePoint(temperature: 100, fanSpeed: 100),
         ]), isBuiltIn: true),
-        FanProfile(name: "Default", mode: .automatic, isBuiltIn: true),
         FanProfile(name: "Balanced", mode: .curve, curve: FanCurve(name: "Balanced"), isBuiltIn: true),
         FanProfile(name: "Performance", mode: .curve, curve: FanCurve(name: "Performance", points: [
             CurvePoint(temperature: 30, fanSpeed: 15),

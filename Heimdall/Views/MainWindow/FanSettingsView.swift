@@ -34,19 +34,25 @@ struct FanSettingsView: View {
                 profilesSection
                     .padding(.horizontal)
 
-                // 2. Control mode card picker + fan cards
+                // 2. Selected profile editor (curve / manual)
+                if profileState.selectedProfile != nil {
+                    selectedProfileEditor
+                        .padding(.horizontal)
+                }
+
+                // 3. Control mode card picker + fan cards
                 fanControlSection
                     .padding(.horizontal)
 
-                // 3. Manual speed — only in manual mode
+                // 4. Manual speed — only in manual mode (live control, not profile edit)
                 if fan.controlMode == .manual {
                     manualSpeedSection
                         .padding(.horizontal)
                 }
 
-                // 4. Fan curve — only in curve mode
-                if fan.controlMode == .curve {
-                    fanCurveSection
+                // 5. Live fan curve — only in curve mode when no profile is selected for editing
+                if fan.controlMode == .curve && profileState.selectedProfile == nil {
+                    liveFanCurveSection
                         .padding(.horizontal)
                 }
 
@@ -69,6 +75,11 @@ struct FanSettingsView: View {
             }
         } message: {
             Text("Fan control requires installing the Heimdall helper (one-time admin password) so we can talk to the SMC. Heimdall will momentarily pause while the helper requests access. Continue?")
+        }
+        .onAppear {
+            if profileState.selectedProfile == nil, let active = profileState.activeProfile {
+                selectProfile(active)
+            }
         }
     }
 
@@ -233,10 +244,13 @@ struct FanSettingsView: View {
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Fan Curve Section (only visible in curve mode)
+    // MARK: - Curve / Profile Editing State
 
     @State private var curve = FanCurve()
     @State private var selectedSensorKey = "AGG_CPU_AVG"
+    @State private var editingManualSpeed: Double = 100
+    @State private var hasUnsavedProfileChanges = false
+    @State private var editingProfileMode: FanProfileMode = .curve
 
     private func autoApplyCurve() {
         guard ensureWriteAccess() else { return }
@@ -245,89 +259,197 @@ struct FanSettingsView: View {
         NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
     }
 
+    private func markProfileEdited() {
+        hasUnsavedProfileChanges = true
+    }
+
+    // MARK: - Selected Profile Editor
+
     @ViewBuilder
-    private var fanCurveSection: some View {
+    private var selectedProfileEditor: some View {
+        if let profile = profileState.selectedProfile {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Edit \(profile.name)").font(.headline)
+                    Spacer()
+                    if hasUnsavedProfileChanges {
+                        Button("Apply") {
+                            applySelectedProfileEdits()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
+
+                switch editingProfileMode {
+                case .automatic:
+                    automaticProfileEditor(profile: profile)
+                case .manual:
+                    manualProfileEditor
+                case .curve:
+                    profileCurveEditor
+                }
+            }
+            .padding()
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    @ViewBuilder
+    private func automaticProfileEditor(profile: FanProfile) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("This profile uses the system automatic fan curve.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Customize Curve") {
+                curve = FanCurve(name: profile.name)
+                selectedSensorKey = curve.sensorKey
+                editingProfileMode = .curve
+                markProfileEdited()
+            }
+            .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var manualProfileEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("0%").font(.caption2).foregroundStyle(.secondary)
+                Slider(value: $editingManualSpeed, in: 0...100, step: 1)
+                    .onChange(of: editingManualSpeed) { _, _ in markProfileEdited() }
+                Text("100%").font(.caption2).foregroundStyle(.secondary)
+            }
+            Text(String(format: "%.0f%%", editingManualSpeed))
+                .font(.title3).fontWeight(.bold).fontDesign(.rounded)
+
+            Button("Convert to Curve") {
+                curve = FanCurve(name: profileState.selectedProfile?.name ?? "Custom")
+                selectedSensorKey = curve.sensorKey
+                editingProfileMode = .curve
+                markProfileEdited()
+            }
+            .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var profileCurveEditor: some View {
+        curveEditorContent(autoApplyLive: false)
+    }
+
+    // MARK: - Live Fan Curve (control mode, no profile selected)
+
+    @ViewBuilder
+    private var liveFanCurveSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Fan Curve").font(.headline)
-
-            // Sensor picker
-            HStack {
-                Text("Sensor:").font(.caption).foregroundStyle(.secondary)
-                Picker("Sensor", selection: $selectedSensorKey) {
-                    Text("CPU Average").tag("AGG_CPU_AVG")
-                    Text("CPU Hottest").tag("AGG_CPU_MAX")
-                    Text("GPU Average").tag("AGG_GPU_AVG")
-                    ForEach(sensors.temperatureReadings.prefix(20)) { reading in
-                        Text(reading.name).tag(reading.key)
-                    }
-                }
-                .labelsHidden()
-                .controlSize(.small)
-            }
-
-            // Curve canvas
-            GeometryReader { geo in
-                let size = geo.size
-                Canvas { context, canvasSize in
-                    drawCurveCanvas(context: context, size: canvasSize)
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            handleDrag(value: value, size: size)
-                        }
-                        .onEnded { _ in
-                            autoApplyCurve()
-                        }
-                )
-            }
-            .frame(height: 220)
-            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
-            .onChange(of: selectedSensorKey) { _, _ in autoApplyCurve() }
-
-            // Axis labels
-            HStack {
-                Text("20°C").font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                Text("Temperature").font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                Text("110°C").font(.caption2).foregroundStyle(.secondary)
-            }
-
-            // Editable control points table
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Control Points").font(.subheadline).fontWeight(.medium)
-                    Spacer()
-                    Button(action: addPoint) {
-                        Image(systemName: "plus.circle.fill").foregroundStyle(.blue)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                ForEach(curve.sortedPoints) { point in
-                    editablePointRow(point: point)
-                }
-            }
-
-            // Reset only
-            HStack {
-                Spacer()
-                Button("Reset") {
-                    curve = FanCurve()
-                    autoApplyCurve()
-                }
-                .controlSize(.small)
-            }
+            curveEditorContent(autoApplyLive: true)
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
     }
 
+    @ViewBuilder
+    private func curveEditorContent(autoApplyLive: Bool) -> some View {
+        // Sensor picker
+        HStack {
+            Text("Sensor:").font(.caption).foregroundStyle(.secondary)
+            Picker("Sensor", selection: $selectedSensorKey) {
+                Text("CPU Average").tag("AGG_CPU_AVG")
+                Text("CPU Hottest").tag("AGG_CPU_MAX")
+                Text("GPU Average").tag("AGG_GPU_AVG")
+                ForEach(sensors.temperatureReadings.prefix(20)) { reading in
+                    Text(reading.name).tag(reading.key)
+                }
+            }
+            .labelsHidden()
+            .controlSize(.small)
+        }
+
+        // Curve canvas
+        GeometryReader { geo in
+            let size = geo.size
+            Canvas { context, canvasSize in
+                drawCurveCanvas(context: context, size: canvasSize)
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        handleDrag(value: value, size: size)
+                    }
+                    .onEnded { _ in
+                        if autoApplyLive {
+                            autoApplyCurve()
+                        } else {
+                            markProfileEdited()
+                        }
+                    }
+            )
+        }
+        .frame(height: 220)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+        .onChange(of: selectedSensorKey) { _, _ in
+            if autoApplyLive {
+                autoApplyCurve()
+            } else {
+                markProfileEdited()
+            }
+        }
+
+        // Axis labels
+        HStack {
+            Text("20°C").font(.caption2).foregroundStyle(.secondary)
+            Spacer()
+            Text("Temperature").font(.caption2).foregroundStyle(.secondary)
+            Spacer()
+            Text("110°C").font(.caption2).foregroundStyle(.secondary)
+        }
+
+        // Editable control points table
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Control Points").font(.subheadline).fontWeight(.medium)
+                Spacer()
+                Button(action: {
+                    addPoint()
+                    if autoApplyLive {
+                        autoApplyCurve()
+                    } else {
+                        markProfileEdited()
+                    }
+                }) {
+                    Image(systemName: "plus.circle.fill").foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+            }
+
+            ForEach(curve.sortedPoints) { point in
+                editablePointRow(point: point, autoApplyLive: autoApplyLive)
+            }
+        }
+
+        // Reset
+        HStack {
+            Spacer()
+            Button("Reset") {
+                let name = profileState.selectedProfile?.name ?? curve.name
+                curve = FanCurve(name: name)
+                selectedSensorKey = curve.sensorKey
+                if autoApplyLive {
+                    autoApplyCurve()
+                } else {
+                    markProfileEdited()
+                }
+            }
+            .controlSize(.small)
+        }
+    }
+
     // MARK: - Editable Point Row
 
     @ViewBuilder
-    private func editablePointRow(point: CurvePoint) -> some View {
+    private func editablePointRow(point: CurvePoint, autoApplyLive: Bool) -> some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 // Temp field
@@ -336,7 +458,7 @@ struct FanSettingsView: View {
                         get: { Int(point.temperature) },
                         set: {
                             curve.updatePoint(id: point.id, temperature: max(20, min(110, Double($0))))
-                            autoApplyCurve()
+                            if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
                         }
                     ), format: .number)
                     .textFieldStyle(.roundedBorder)
@@ -354,7 +476,7 @@ struct FanSettingsView: View {
                         get: { Int(point.fanSpeed) },
                         set: {
                             curve.updatePoint(id: point.id, fanSpeed: max(0, min(100, Double($0))))
-                            autoApplyCurve()
+                            if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
                         }
                     ), format: .number)
                     .textFieldStyle(.roundedBorder)
@@ -367,7 +489,10 @@ struct FanSettingsView: View {
                 Spacer()
 
                 if curve.points.count > 2 {
-                    Button { removePoint(id: point.id) } label: {
+                    Button {
+                        removePoint(id: point.id)
+                        if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                    } label: {
                         Image(systemName: "minus.circle.fill").foregroundStyle(.red).font(.caption)
                     }
                     .buttonStyle(.plain)
@@ -381,7 +506,9 @@ struct FanSettingsView: View {
                     get: { point.temperature },
                     set: { curve.updatePoint(id: point.id, temperature: $0) }
                 ), in: 20...110, step: 1)
-                .onChange(of: point.temperature) { _, _ in autoApplyCurve() }
+                .onChange(of: point.temperature) { _, _ in
+                    if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                }
                 .controlSize(.mini)
             }
             HStack(spacing: 8) {
@@ -390,7 +517,9 @@ struct FanSettingsView: View {
                     get: { point.fanSpeed },
                     set: { curve.updatePoint(id: point.id, fanSpeed: $0) }
                 ), in: 0...100, step: 1)
-                .onChange(of: point.fanSpeed) { _, _ in autoApplyCurve() }
+                .onChange(of: point.fanSpeed) { _, _ in
+                    if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                }
                 .controlSize(.mini)
             }
         }
@@ -474,6 +603,7 @@ struct FanSettingsView: View {
     @ViewBuilder
     private func profileCard(profile: FanProfile) -> some View {
         let isActive = profileState.activeProfile?.id == profile.id
+        let isSelected = profileState.selectedProfile?.id == profile.id
 
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -503,13 +633,17 @@ struct FanSettingsView: View {
             }
 
             HStack {
-                Button(isActive ? "Active" : "Activate") { activateProfile(profile) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.mini)
-                    .disabled(isActive)
+                Button(isActive ? "Active" : "Activate") {
+                    activateProfile(profile)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.mini)
+                .disabled(isActive)
                 Spacer()
                 if !profile.isBuiltIn {
-                    Button { profileState.removeProfile(profile) } label: {
+                    Button {
+                        profileState.removeProfile(profile)
+                    } label: {
                         Image(systemName: "trash").foregroundStyle(.red).font(.caption2)
                     }
                     .buttonStyle(.plain)
@@ -518,13 +652,17 @@ struct FanSettingsView: View {
         }
         .padding(8)
         .background(
-            isActive ? Color.accentColor.opacity(0.05) : Color.secondary.opacity(0.05),
+            isSelected ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.05),
             in: RoundedRectangle(cornerRadius: 8)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isActive ? Color.accentColor : .clear, lineWidth: 1)
+                .stroke(isSelected ? Color.accentColor : .clear, lineWidth: isSelected ? 1.5 : 0)
         )
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture {
+            selectProfile(profile)
+        }
     }
 
     // MARK: - Curve Preview Canvas
@@ -661,8 +799,82 @@ struct FanSettingsView: View {
         }
     }
 
+    private func selectProfile(_ profile: FanProfile) {
+        // Discard unsaved edits when switching cards.
+        profileState.setSelectedProfile(profile)
+        editingProfileMode = profile.mode
+        hasUnsavedProfileChanges = false
+
+        switch profile.mode {
+        case .automatic:
+            break
+        case .manual:
+            editingManualSpeed = profile.manualSpeedPercentage ?? 100
+        case .curve:
+            if let c = profile.curve {
+                curve = c
+                selectedSensorKey = c.sensorKey
+            } else {
+                curve = FanCurve(name: profile.name)
+                selectedSensorKey = curve.sensorKey
+            }
+        }
+    }
+
+    /// Saves edits into the selected profile without activating it.
+    /// If that profile is already active, refresh live control to match the saved config.
+    private func applySelectedProfileEdits() {
+        guard var profile = profileState.selectedProfile else { return }
+
+        switch editingProfileMode {
+        case .automatic:
+            profile.mode = .automatic
+            profile.curve = nil
+            profile.manualSpeedPercentage = nil
+        case .manual:
+            profile.mode = .manual
+            profile.manualSpeedPercentage = editingManualSpeed
+            profile.curve = nil
+        case .curve:
+            var savedCurve = curve
+            savedCurve.sensorKey = selectedSensorKey
+            savedCurve.name = profile.name
+            profile.mode = .curve
+            profile.curve = savedCurve
+            profile.manualSpeedPercentage = nil
+            curve = savedCurve
+        }
+
+        let wasActive = profileState.activeProfile?.id == profile.id
+        profileState.updateProfile(profile)
+        hasUnsavedProfileChanges = false
+
+        // Refresh live control only if this profile is already active — do not activate.
+        if wasActive {
+            switch profile.mode {
+            case .automatic:
+                fan.controlMode = .automatic
+                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.automatic)
+            case .manual:
+                if let speed = profile.manualSpeedPercentage {
+                    fan.manualSpeedPercentage = speed
+                    fan.controlMode = .manual
+                    NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.manual)
+                }
+            case .curve:
+                if let c = profile.curve {
+                    fan.activeCurve = c
+                    fan.controlMode = .curve
+                    NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
+                }
+            }
+        }
+    }
+
     private func activateProfile(_ profile: FanProfile) {
         profileState.setActiveProfile(profile)
+        // Keep selection in sync so the editor shows the active profile.
+        selectProfile(profile)
 
         switch profile.mode {
         case .automatic:
@@ -677,6 +889,7 @@ struct FanSettingsView: View {
         case .curve:
             if let c = profile.curve {
                 curve = c
+                selectedSensorKey = c.sensorKey
                 fan.activeCurve = c
                 fan.controlMode = .curve
                 NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
