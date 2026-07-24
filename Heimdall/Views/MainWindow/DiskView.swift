@@ -21,7 +21,11 @@ struct DiskView: View {
                             Text(String(format: "%.1f%% used", d.usagePercent)).font(.caption).foregroundStyle(.secondary)
                         }
                         ProgressView(value: d.usagePercent, total: 100)
-                            .tint(d.usagePercent > 90 ? .red : d.usagePercent > 75 ? .orange : .blue)
+                            .tint(d.usagePercent <= 20 ? .blue
+                                  : d.usagePercent <= 40 ? .green
+                                  : d.usagePercent <= 60 ? .yellow
+                                  : d.usagePercent <= 80 ? .orange
+                                  : .red)
                         HStack {
                             Text("\(ByteFormatter.format(d.usedBytes)) used").font(.caption).foregroundStyle(.secondary)
                             Spacer()

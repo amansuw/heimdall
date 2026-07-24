@@ -152,7 +152,11 @@ struct FanControlView: View {
     }
 
     private func speedColor(_ pct: Double) -> Color {
-        if pct < 30 { return .green }; if pct < 60 { return .yellow }; if pct < 80 { return .orange }; return .red
+        if pct <= 20 { return .blue }
+        if pct <= 40 { return .green }
+        if pct <= 60 { return .yellow }
+        if pct <= 80 { return .orange }
+        return .red
     }
 
     private func presetButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {

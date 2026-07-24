@@ -50,7 +50,7 @@ struct DashboardView: View {
                              icon: "arrow.up.circle.fill", color: .green)
                     if let d = disk.disks.first {
                         StatCard(title: "Disk", value: String(format: "%.0f%% used", d.usagePercent),
-                                 icon: "internaldrive", color: d.usagePercent > 90 ? .red : d.usagePercent > 75 ? .orange : .blue)
+                                 icon: "internaldrive", color: gaugeColor(d.usagePercent))
                     } else {
                         StatCard(title: "Disk", value: "N/A", icon: "internaldrive", color: .gray)
                     }
@@ -187,13 +187,25 @@ struct DashboardView: View {
     }
 
     private func gaugeColor(_ v: Double) -> Color {
-        if v < 30 { return .green }; if v < 60 { return .yellow }; if v < 80 { return .orange }; return .red
+        if v <= 20 { return .blue }
+        if v <= 40 { return .green }
+        if v <= 60 { return .yellow }
+        if v <= 80 { return .orange }
+        return .red
     }
     private func ramColor(_ v: Double) -> Color {
-        if v < 50 { return .green }; if v < 75 { return .yellow }; if v < 90 { return .orange }; return .red
+        if v <= 20 { return .blue }
+        if v <= 40 { return .green }
+        if v <= 60 { return .yellow }
+        if v <= 80 { return .orange }
+        return .red
     }
     private func tempColor(_ t: Double) -> Color {
-        if t <= 0 { return .gray }; if t < 45 { return .green }; if t < 65 { return .yellow }; if t < 80 { return .orange }; return .red
+        if t <= 0 || t < 35 { return .gray }
+        if t < 56 { return .green }
+        if t < 75 { return .yellow }
+        if t < 90 { return .orange }
+        return .red
     }
 
     private func dashPresetButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -304,9 +316,9 @@ struct DashboardTempChart: View {
             if history.count >= 2 {
                 CanvasMultiLineChart(series: [
                     .init(data: history.map(\.avgCPU), color: .blue, label: "CPU Avg"),
-                    .init(data: history.map(\.maxCPU), color: .blue.opacity(0.5), label: "CPU Peak", dashed: true),
+                    .init(data: history.map(\.maxCPU), color: .blue, label: "CPU Peak", dashed: true),
                     .init(data: history.map(\.avgGPU), color: .green, label: "GPU Avg"),
-                    .init(data: history.map(\.maxGPU), color: .green.opacity(0.5), label: "GPU Peak", dashed: true),
+                    .init(data: history.map(\.maxGPU), color: .green, label: "GPU Peak", dashed: true),
                 ])
                 .frame(height: 180)
             } else {
@@ -315,10 +327,10 @@ struct DashboardTempChart: View {
             }
 
             HStack(spacing: 16) {
-                legendDot(color: .blue, label: "CPU Avg")
-                legendDot(color: .blue.opacity(0.5), label: "CPU Peak")
-                legendDot(color: .green, label: "GPU Avg")
-                legendDot(color: .green.opacity(0.5), label: "GPU Peak")
+                legendLine(color: .blue, label: "CPU Avg")
+                legendLine(color: .blue, label: "CPU Peak", dashed: true)
+                legendLine(color: .green, label: "GPU Avg")
+                legendLine(color: .green, label: "GPU Peak", dashed: true)
             }
             .font(.caption2)
         }
@@ -326,9 +338,9 @@ struct DashboardTempChart: View {
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func legendDot(color: Color, label: String) -> some View {
+    private func legendLine(color: Color, label: String, dashed: Bool = false) -> some View {
         HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 6, height: 6)
+            ChartLineSwatch(color: color, dashed: dashed)
             Text(label).foregroundStyle(.secondary)
         }
     }

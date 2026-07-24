@@ -93,7 +93,11 @@ struct GPUView: View {
     }
 
     private func gaugeColor(_ v: Double) -> Color {
-        if v < 30 { return .green }; if v < 60 { return .yellow }; if v < 80 { return .orange }; return .red
+        if v <= 20 { return .blue }
+        if v <= 40 { return .green }
+        if v <= 60 { return .yellow }
+        if v <= 80 { return .orange }
+        return .red
     }
 
     private func legendDot(color: Color, label: String) -> some View {

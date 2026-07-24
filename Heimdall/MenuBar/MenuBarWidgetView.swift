@@ -23,18 +23,16 @@ final class MenuBarFanIcon {
         let color: NSColor
         if loading {
             color = NSColor(calibratedRed: 0.10, green: 0.35, blue: 0.85, alpha: 1)
-        } else if cpuTempC <= 0 {
-            color = NSColor(calibratedWhite: 0.35, alpha: 1)
-        } else if cpuTempC < 45 {
-            color = NSColor(calibratedRed: 0.08, green: 0.32, blue: 0.78, alpha: 1)   // deep blue
-        } else if cpuTempC < 60 {
-            color = NSColor(calibratedRed: 0.12, green: 0.55, blue: 0.22, alpha: 1)   // deep green
+        } else if cpuTempC <= 0 || cpuTempC < 35 {
+            color = NSColor(calibratedWhite: 0.35, alpha: 1)                         // grey
+        } else if cpuTempC < 56 {
+            color = NSColor(calibratedRed: 0.12, green: 0.55, blue: 0.22, alpha: 1)   // green 35–55
         } else if cpuTempC < 75 {
-            color = NSColor(calibratedRed: 0.78, green: 0.55, blue: 0.05, alpha: 1)   // deep gold
+            color = NSColor(calibratedRed: 0.78, green: 0.55, blue: 0.05, alpha: 1)   // yellow 56–74
         } else if cpuTempC < 90 {
-            color = NSColor(calibratedRed: 0.85, green: 0.35, blue: 0.05, alpha: 1)   // deep orange
+            color = NSColor(calibratedRed: 0.85, green: 0.35, blue: 0.05, alpha: 1)   // orange 75–89
         } else {
-            color = NSColor(calibratedRed: 0.75, green: 0.10, blue: 0.10, alpha: 1)   // deep red
+            color = NSColor(calibratedRed: 0.75, green: 0.10, blue: 0.10, alpha: 1)   // red ≥ 90
         }
         apply(color: color)
     }

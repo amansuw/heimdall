@@ -92,13 +92,14 @@ private struct ChartHoverOverlay: View {
 // MARK: - Hover Tooltip
 
 private struct ChartTooltip: View {
-    let values: [(Color, String, String)]  // (color, label, value)
+    /// (color, label, value, dashed)
+    let values: [(Color, String, String, Bool)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(Array(values.enumerated()), id: \.offset) { _, item in
-                HStack(spacing: 4) {
-                    Circle().fill(item.0).frame(width: 6, height: 6)
+                HStack(spacing: 5) {
+                    ChartLineSwatch(color: item.0, dashed: item.3)
                     Text(item.1).font(.system(size: 9)).foregroundStyle(.secondary)
                     Text(item.2).font(.system(size: 9, weight: .medium, design: .rounded))
                 }
@@ -106,6 +107,26 @@ private struct ChartTooltip: View {
         }
         .padding(6)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+/// Mini solid or dashed line sample for legends / tooltips.
+struct ChartLineSwatch: View {
+    let color: Color
+    var dashed: Bool = false
+
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            let y = size.height / 2
+            path.move(to: CGPoint(x: 0, y: y))
+            path.addLine(to: CGPoint(x: size.width, y: y))
+            let style: StrokeStyle = dashed
+                ? StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 2])
+                : StrokeStyle(lineWidth: 2, lineCap: .round)
+            context.stroke(path, with: .color(color), style: style)
+        }
+        .frame(width: 14, height: 6)
     }
 }
 
@@ -221,7 +242,7 @@ struct CanvasLineChart: View {
             let val = data[idx]
             let xPos = chartLeftPad + CGFloat(idx) * stepX
 
-            ChartTooltip(values: [(color, label, tooltipFormatter(val))])
+            ChartTooltip(values: [(color, label, tooltipFormatter(val), false)])
                 .fixedSize()
                 .allowsHitTesting(false)
                 .position(x: min(max(xPos, chartLeftPad + 40), geo.size.width - 40), y: 16)
@@ -345,10 +366,10 @@ struct CanvasMultiLineChart: View {
             let idx = max(0, min(maxCount - 1, Int(round(relX / stepX))))
             let xPos = chartLeftPad + CGFloat(idx) * stepX
 
-            let items: [(Color, String, String)] = series.compactMap { s in
+            let items: [(Color, String, String, Bool)] = series.compactMap { s in
                 guard idx < s.data.count else { return nil }
                 let lbl = s.label.isEmpty ? "Series" : s.label
-                return (s.color, lbl, tooltipFormatter(s.data[idx]))
+                return (s.color, lbl, tooltipFormatter(s.data[idx]), s.dashed)
             }
 
             ChartTooltip(values: items)

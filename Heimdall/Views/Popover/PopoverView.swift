@@ -30,9 +30,9 @@ struct PopoverView: View {
                 if history.count >= 2 {
                     CanvasMultiLineChart(series: [
                         .init(data: history.map(\.avgCPU), color: .blue, label: "CPU Avg"),
-                        .init(data: history.map(\.maxCPU), color: .blue.opacity(0.5), label: "CPU Peak", dashed: true),
+                        .init(data: history.map(\.maxCPU), color: .blue, label: "CPU Peak", dashed: true),
                         .init(data: history.map(\.avgGPU), color: .green, label: "GPU Avg"),
-                        .init(data: history.map(\.maxGPU), color: .green.opacity(0.5), label: "GPU Peak", dashed: true),
+                        .init(data: history.map(\.maxGPU), color: .green, label: "GPU Peak", dashed: true),
                     ])
                     .frame(height: 100)
                     .padding(.horizontal, 10)
@@ -44,9 +44,9 @@ struct PopoverView: View {
 
             // System stats row
             HStack(spacing: 6) {
-                MiniGauge(label: "CPU", percent: cpu.usage.total, color: .blue)
-                MiniGauge(label: "GPU", percent: gpu.usage.utilization, color: .green)
-                MiniGauge(label: "RAM", percent: ram.memory.usagePercent, color: .purple)
+                MiniGauge(label: "CPU", percent: cpu.usage.total, color: usageColor(cpu.usage.total))
+                MiniGauge(label: "GPU", percent: gpu.usage.utilization, color: usageColor(gpu.usage.utilization))
+                MiniGauge(label: "RAM", percent: ram.memory.usagePercent, color: usageColor(ram.memory.usagePercent))
                 VStack(spacing: 1) {
                     Text("↓ " + ByteFormatter.formatSpeed(network.stats.downloadBytesPerSec))
                         .font(.system(size: 8, weight: .medium, design: .rounded)).foregroundStyle(.blue)
@@ -131,7 +131,19 @@ struct PopoverView: View {
     }
 
     private func tempColor(_ t: Double) -> Color {
-        if t <= 0 { return .gray }; if t < 50 { return .green }; if t < 70 { return .yellow }; if t < 85 { return .orange }; return .red
+        if t <= 0 || t < 35 { return .gray }
+        if t < 56 { return .green }
+        if t < 75 { return .yellow }
+        if t < 90 { return .orange }
+        return .red
+    }
+
+    private func usageColor(_ v: Double) -> Color {
+        if v <= 20 { return .blue }
+        if v <= 40 { return .green }
+        if v <= 60 { return .yellow }
+        if v <= 80 { return .orange }
+        return .red
     }
 
     private func activateProfile(_ profile: FanProfile) {
