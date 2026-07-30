@@ -251,6 +251,7 @@ struct FanSettingsView: View {
     @State private var editingManualSpeed: Double = 100
     @State private var hasUnsavedProfileChanges = false
     @State private var editingProfileMode: FanProfileMode = .curve
+    @State private var curveHoverLocation: CGPoint? = nil
 
     private func autoApplyCurve() {
         guard ensureWriteAccess() else { return }
@@ -273,6 +274,10 @@ struct FanSettingsView: View {
                     Text("Edit \(profile.name)").font(.headline)
                     Spacer()
                     if hasUnsavedProfileChanges {
+                        Button("Reset") {
+                            resetSelectedProfileToDefault()
+                        }
+                        .controlSize(.small)
                         Button("Apply") {
                             applySelectedProfileEdits()
                         }
@@ -370,22 +375,41 @@ struct FanSettingsView: View {
         // Curve canvas
         GeometryReader { geo in
             let size = geo.size
-            Canvas { context, canvasSize in
-                drawCurveCanvas(context: context, size: canvasSize)
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        handleDrag(value: value, size: size)
-                    }
-                    .onEnded { _ in
-                        if autoApplyLive {
-                            autoApplyCurve()
-                        } else {
-                            markProfileEdited()
+            ZStack(alignment: .topLeading) {
+                Canvas { context, canvasSize in
+                    drawCurveCanvas(context: context, size: canvasSize, hover: curveHoverLocation)
+                }
+
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let loc):
+                            curveHoverLocation = loc
+                        case .ended:
+                            curveHoverLocation = nil
                         }
                     }
-            )
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                curveHoverLocation = value.location
+                                handleDrag(value: value, size: size)
+                            }
+                            .onEnded { _ in
+                                if autoApplyLive {
+                                    autoApplyCurve()
+                                } else {
+                                    markProfileEdited()
+                                }
+                            }
+                    )
+
+                if curveHoverLocation != nil {
+                    curveHoverTooltip(size: size)
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .frame(height: 220)
         .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
@@ -429,20 +453,18 @@ struct FanSettingsView: View {
             }
         }
 
-        // Reset
-        HStack {
-            Spacer()
-            Button("Reset") {
-                let name = profileState.selectedProfile?.name ?? curve.name
-                curve = FanCurve(name: name)
-                selectedSensorKey = curve.sensorKey
-                if autoApplyLive {
+        // Reset curve (live editor only — profile editor uses header Reset)
+        if autoApplyLive {
+            HStack {
+                Spacer()
+                Button("Reset") {
+                    let name = curve.name
+                    curve = FanCurve(name: name)
+                    selectedSensorKey = curve.sensorKey
                     autoApplyCurve()
-                } else {
-                    markProfileEdited()
                 }
+                .controlSize(.small)
             }
-            .controlSize(.small)
         }
     }
 
@@ -698,7 +720,7 @@ struct FanSettingsView: View {
 
     // MARK: - Curve Canvas Drawing
 
-    private func drawCurveCanvas(context: GraphicsContext, size: CGSize) {
+    private func drawCurveCanvas(context: GraphicsContext, size: CGSize, hover: CGPoint?) {
         let sorted = curve.sortedPoints
         guard sorted.count >= 2 else { return }
 
@@ -750,16 +772,92 @@ struct FanSettingsView: View {
             context.stroke(circle, with: .color(.white), lineWidth: 2)
         }
 
-        // Current temperature indicator
+        // Current sensor temp + running fan speed (red)
         let currentTemp = sensorTemp(for: selectedSensorKey)
-        if currentTemp > 0 {
+        if currentTemp > 0, size.width > 0, size.height > 0 {
             let curX = ((currentTemp - 20) / 90) * size.width
             var indicatorPath = Path()
             indicatorPath.move(to: CGPoint(x: curX, y: 0))
             indicatorPath.addLine(to: CGPoint(x: curX, y: size.height))
             context.stroke(indicatorPath, with: .color(.red.opacity(0.5)),
                          style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+
+            let runningY = size.height - (CGFloat(fan.averageSpeedPercentage) / 100.0) * size.height
+            let redDot = Path(ellipseIn: CGRect(x: curX - 4, y: runningY - 4, width: 8, height: 8))
+            context.fill(redDot, with: .color(.red))
+            context.stroke(redDot, with: .color(.white), lineWidth: 1.5)
         }
+
+        // Green click preview + blue curve value at hover X
+        if let hover, size.width > 0, size.height > 0 {
+            let clampedX = max(0, min(size.width, hover.x))
+            let clampedY = max(0, min(size.height, hover.y))
+            let hoverTemp = (clampedX / size.width) * 90 + 20
+            let profileSpeed = curve.speedForTemperature(hoverTemp)
+            let profileY = size.height - (CGFloat(profileSpeed) / 100.0) * size.height
+
+            var vLine = Path()
+            vLine.move(to: CGPoint(x: clampedX, y: 0))
+            vLine.addLine(to: CGPoint(x: clampedX, y: size.height))
+            context.stroke(vLine, with: .color(.green.opacity(0.45)),
+                         style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+
+            var hLine = Path()
+            hLine.move(to: CGPoint(x: 0, y: clampedY))
+            hLine.addLine(to: CGPoint(x: size.width, y: clampedY))
+            context.stroke(hLine, with: .color(.green.opacity(0.35)),
+                         style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+
+            // Blue: profile curve at hover temp (where green X meets blue curve)
+            let blueDot = Path(ellipseIn: CGRect(x: clampedX - 4, y: profileY - 4, width: 8, height: 8))
+            context.fill(blueDot, with: .color(.blue))
+            context.stroke(blueDot, with: .color(.white), lineWidth: 1.5)
+
+            // Green: click preview at mouse
+            let greenDot = Path(ellipseIn: CGRect(x: clampedX - 4, y: clampedY - 4, width: 8, height: 8))
+            context.fill(greenDot, with: .color(.green))
+            context.stroke(greenDot, with: .color(.white), lineWidth: 1.5)
+        }
+    }
+
+    @ViewBuilder
+    private func curveHoverTooltip(size: CGSize) -> some View {
+        let hover = curveHoverLocation ?? .zero
+        let clampedX = max(0, min(size.width, hover.x))
+        let clampedY = max(0, min(size.height, hover.y))
+        let hoverTemp = max(20, min(110, (clampedX / max(size.width, 1)) * 90 + 20))
+        let clickSpeed = max(0, min(100, (1 - clampedY / max(size.height, 1)) * 100))
+        let currentTemp = sensorTemp(for: selectedSensorKey)
+        let runningSpeed = fan.averageSpeedPercentage
+        let profileSpeed = curve.speedForTemperature(hoverTemp)
+
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                ChartLineSwatch(color: .red, dashed: true)
+                Text("Sensor").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(String(format: "%.0f°C → %.0f%%", currentTemp, runningSpeed))
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+            }
+            HStack(spacing: 5) {
+                ChartLineSwatch(color: .blue)
+                Text("Profile").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(String(format: "%.0f°C → %.0f%%", hoverTemp, profileSpeed))
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+            }
+            HStack(spacing: 5) {
+                ChartLineSwatch(color: .green)
+                Text("Click").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(String(format: "%.0f°C → %.0f%%", hoverTemp, clickSpeed))
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+            }
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+        .fixedSize()
+        .position(
+            x: min(max(clampedX, 80), max(size.width - 80, 80)),
+            y: 28
+        )
     }
 
     // MARK: - Helpers
@@ -818,6 +916,33 @@ struct FanSettingsView: View {
                 curve = FanCurve(name: profile.name)
                 selectedSensorKey = curve.sensorKey
             }
+        }
+    }
+
+    /// Restores the selected profile to its factory default (built-in) or last saved values (custom).
+    private func resetSelectedProfileToDefault() {
+        guard let profile = profileState.selectedProfile else { return }
+
+        let restored: FanProfile
+        if let factory = FanProfile.builtInProfiles.first(where: { $0.name == profile.name }) {
+            restored = FanProfile(
+                id: profile.id,
+                name: factory.name,
+                mode: factory.mode,
+                manualSpeedPercentage: factory.manualSpeedPercentage,
+                curve: factory.curve,
+                isBuiltIn: profile.isBuiltIn
+            )
+            let wasActive = profileState.activeProfile?.id == profile.id
+            profileState.updateProfile(restored)
+            selectProfile(restored)
+
+            if wasActive {
+                activateProfile(restored)
+            }
+        } else {
+            // Custom profile: discard unsaved edits and reload last saved.
+            selectProfile(profile)
         }
     }
 
