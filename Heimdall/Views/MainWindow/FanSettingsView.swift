@@ -5,6 +5,8 @@ struct FanSettingsView: View {
     @Environment(SensorState.self) private var sensors
     @Environment(ProfileState.self) private var profileState
     @State private var showAccessPrompt = false
+    @State private var renamingProfile: FanProfile?
+    @State private var renameText = ""
 
     var body: some View {
         ScrollView {
@@ -75,6 +77,22 @@ struct FanSettingsView: View {
             }
         } message: {
             Text("Fan control requires installing the Heimdall helper (one-time admin password) so we can talk to the SMC. Heimdall will momentarily pause while the helper requests access. Continue?")
+        }
+        .alert("Rename Profile", isPresented: Binding(
+            get: { renamingProfile != nil },
+            set: { if !$0 { renamingProfile = nil } }
+        )) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renamingProfile = nil }
+            Button("Save") {
+                if let profile = renamingProfile {
+                    profileState.renameProfile(profile, to: renameText)
+                }
+                renamingProfile = nil
+            }
+            .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Enter a new name for this profile.")
         }
         .onAppear {
             if profileState.selectedProfile == nil, let active = profileState.activeProfile {
@@ -664,11 +682,21 @@ struct FanSettingsView: View {
                 Spacer()
                 if !profile.isBuiltIn {
                     Button {
+                        renameText = profile.name
+                        renamingProfile = profile
+                    } label: {
+                        Image(systemName: "pencil").foregroundStyle(.secondary).font(.caption2)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Rename")
+
+                    Button {
                         profileState.removeProfile(profile)
                     } label: {
                         Image(systemName: "trash").foregroundStyle(.red).font(.caption2)
                     }
                     .buttonStyle(.plain)
+                    .help("Delete")
                 }
             }
         }

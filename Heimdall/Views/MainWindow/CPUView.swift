@@ -44,21 +44,7 @@ struct CPUView: View {
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(pCores.count, 8)), spacing: 4) {
                             ForEach(pCores) { core in
-                                VStack(spacing: 2) {
-                                    GeometryReader { geo in
-                                        let height = geo.size.height * CGFloat(min(core.usage / 100, 1))
-                                        VStack {
-                                            Spacer()
-                                            Rectangle()
-                                                .fill(Color.blue)
-                                                .frame(height: height)
-                                        }
-                                    }
-                                    .frame(height: 40)
-                                    .background(Color.secondary.opacity(0.1))
-                                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                                    Text("\(core.id)").font(.system(size: 7)).foregroundStyle(.secondary)
-                                }
+                                CoreUsageBar(id: core.id, usage: core.usage, color: .blue)
                             }
                         }
                     }
@@ -77,21 +63,7 @@ struct CPUView: View {
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(eCores.count, 8)), spacing: 4) {
                             ForEach(eCores) { core in
-                                VStack(spacing: 2) {
-                                    GeometryReader { geo in
-                                        let height = geo.size.height * CGFloat(min(core.usage / 100, 1))
-                                        VStack {
-                                            Spacer()
-                                            Rectangle()
-                                                .fill(Color.green)
-                                                .frame(height: height)
-                                        }
-                                    }
-                                    .frame(height: 40)
-                                    .background(Color.secondary.opacity(0.1))
-                                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                                    Text("\(core.id)").font(.system(size: 7)).foregroundStyle(.secondary)
-                                }
+                                CoreUsageBar(id: core.id, usage: core.usage, color: .green)
                             }
                         }
                     }
@@ -187,6 +159,57 @@ struct CPUView: View {
 
     private func legendDot(color: Color, label: String) -> some View {
         HStack(spacing: 4) { Circle().fill(color).frame(width: 6, height: 6); Text(label).foregroundStyle(.secondary) }
+    }
+}
+
+/// Single core usage bar with hover percentage.
+struct CoreUsageBar: View {
+    let id: Int
+    let usage: Double
+    let color: Color
+    var barHeight: CGFloat = 40
+
+    @State private var isHovering = false
+
+    var body: some View {
+        VStack(spacing: 2) {
+            GeometryReader { geo in
+                let fillHeight = geo.size.height * CGFloat(min(max(usage / 100, 0), 1))
+                ZStack(alignment: .bottom) {
+                    Color.clear
+                    Rectangle()
+                        .fill(color)
+                        .frame(height: fillHeight)
+                    if isHovering {
+                        Text(String(format: "%.1f%%", usage))
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 2)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .padding(2)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+            .frame(height: barHeight)
+            .background(Color.secondary.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 2))
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    isHovering = true
+                case .ended:
+                    isHovering = false
+                }
+            }
+            .help(String(format: "Core %d: %.1f%%", id, usage))
+
+            Text("\(id)")
+                .font(.system(size: 7))
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

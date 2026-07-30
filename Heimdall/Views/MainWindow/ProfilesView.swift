@@ -61,6 +61,20 @@ class ProfileState {
         saveProfiles()
     }
 
+    /// Renames a custom profile. Built-ins are not renameable.
+    func renameProfile(_ profile: FanProfile, to newName: String) {
+        guard !profile.isBuiltIn else { return }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != profile.name else { return }
+        var updated = profile
+        updated.name = trimmed
+        if var curve = updated.curve {
+            curve.name = trimmed
+            updated.curve = curve
+        }
+        updateProfile(updated)
+    }
+
     private func saveProfiles() {
         let custom = profiles.filter { !$0.isBuiltIn }
         if let data = try? JSONEncoder().encode(custom) {
@@ -116,6 +130,8 @@ struct ProfilesView: View {
     @Environment(FanState.self) private var fan
     @State private var showingNewProfile = false
     @State private var newProfileName = ""
+    @State private var renamingProfile: FanProfile?
+    @State private var renameText = ""
 
     var body: some View {
         ScrollView {
@@ -131,10 +147,16 @@ struct ProfilesView: View {
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     ForEach(profileState.profiles, id: \.id) { profile in
-                        ProfileCard(profile: profile,
-                                    isActive: profileState.activeProfile?.id == profile.id,
-                                    onActivate: { activateProfile(profile) },
-                                    onDelete: profile.isBuiltIn ? nil : { profileState.removeProfile(profile) })
+                        ProfileCard(
+                            profile: profile,
+                            isActive: profileState.activeProfile?.id == profile.id,
+                            onActivate: { activateProfile(profile) },
+                            onRename: profile.isBuiltIn ? nil : {
+                                renameText = profile.name
+                                renamingProfile = profile
+                            },
+                            onDelete: profile.isBuiltIn ? nil : { profileState.removeProfile(profile) }
+                        )
                     }
                 }
                 .padding(.horizontal)
@@ -162,6 +184,22 @@ struct ProfilesView: View {
             .padding()
             .frame(width: 300)
         }
+        .alert("Rename Profile", isPresented: Binding(
+            get: { renamingProfile != nil },
+            set: { if !$0 { renamingProfile = nil } }
+        )) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renamingProfile = nil }
+            Button("Save") {
+                if let profile = renamingProfile {
+                    profileState.renameProfile(profile, to: renameText)
+                }
+                renamingProfile = nil
+            }
+            .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Enter a new name for this profile.")
+        }
     }
 
     private func activateProfile(_ profile: FanProfile) {
@@ -188,6 +226,7 @@ struct ProfileCard: View {
     let profile: FanProfile
     let isActive: Bool
     let onActivate: () -> Void
+    let onRename: (() -> Void)?
     let onDelete: (() -> Void)?
 
     private var modeIcon: String {
@@ -232,12 +271,21 @@ struct ProfileCard: View {
                     .controlSize(.small)
                     .disabled(isActive)
                 Spacer()
+                if let onRename {
+                    Button(action: onRename) {
+                        Image(systemName: "pencil").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .controlSize(.small)
+                    .help("Rename")
+                }
                 if let onDelete {
                     Button(action: onDelete) {
                         Image(systemName: "trash").foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
                     .controlSize(.small)
+                    .help("Delete")
                 }
             }
         }
