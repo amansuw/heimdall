@@ -66,6 +66,7 @@ Interactive temperature-to-fan-speed curve editor with draggable control points 
 
 ### Menu Bar Popover
 Compact temperature stats, live chart, system gauges, fan RPMs, and quick profile switching (Default, Silent, Performance, plus your latest custom profile).
+![Menu Bar Popover](images/menu.png)
 
 ## Requirements
 
