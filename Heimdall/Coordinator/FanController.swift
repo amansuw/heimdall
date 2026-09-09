@@ -8,8 +8,8 @@ class FanController {
     private let helperQueue = DispatchQueue(label: "com.heimdall.fan", qos: .userInitiated)
 
     private var helperRunning = false
-    private var cmdFd: Int32 = -1
-    private var rspFd: Int32 = -1
+    /// One authenticated stream socket to the root helper (was a pair of /tmp FIFOs).
+    private var sockFd: Int32 = -1
     private var rspBuffer = Data()
     private var forceTestModeActive = false
 
@@ -71,7 +71,7 @@ class FanController {
             self.closePersistentFDs()
 
             if SMCDaemon.isDaemonRunning() {
-                if self.connectToFIFOs(cmd: SMCDaemon.cmdPath, rsp: SMCDaemon.rspPath) {
+                if self.connectToDaemon() {
                     self.onDaemonConnected()
                     return
                 }
@@ -81,7 +81,7 @@ class FanController {
                 let deadline = Date().addingTimeInterval(10)
                 while Date() < deadline {
                     if SMCDaemon.isDaemonRunning() {
-                        if self.connectToFIFOs(cmd: SMCDaemon.cmdPath, rsp: SMCDaemon.rspPath) {
+                        if self.connectToDaemon() {
                             self.onDaemonConnected()
                             return
                         }
@@ -99,7 +99,7 @@ class FanController {
             let deadline = Date().addingTimeInterval(15)
             while Date() < deadline {
                 if SMCDaemon.isDaemonRunning() {
-                    if self.connectToFIFOs(cmd: SMCDaemon.cmdPath, rsp: SMCDaemon.rspPath) {
+                    if self.connectToDaemon() {
                         self.onDaemonConnected()
                         return
                     }
@@ -111,11 +111,18 @@ class FanController {
         }
     }
 
-    private func connectToFIFOs(cmd cmdPath: String, rsp rspPath: String) -> Bool {
-        cmdFd = Darwin.open(cmdPath, O_WRONLY)
-        guard cmdFd >= 0 else { return false }
-        rspFd = Darwin.open(rspPath, O_RDONLY)
-        guard rspFd >= 0 else { Darwin.close(cmdFd); cmdFd = -1; return false }
+    private func connectToDaemon() -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+
+        var addr = SMCDaemon.socketAddress(SMCDaemon.socketPath)
+        let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let ok = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, size) }
+        }
+        guard ok == 0 else { Darwin.close(fd); return false }
+
+        sockFd = fd
         helperRunning = true
         rspBuffer = Data()
         return true
@@ -135,19 +142,18 @@ class FanController {
     }
 
     private func closePersistentFDs() {
-        if cmdFd >= 0 { Darwin.close(cmdFd); cmdFd = -1 }
-        if rspFd >= 0 { Darwin.close(rspFd); rspFd = -1 }
+        if sockFd >= 0 { Darwin.close(sockFd); sockFd = -1 }
     }
 
     private func tryReconnectToDaemon(waitUpTo timeout: TimeInterval) -> Bool {
-        if helperRunning && cmdFd >= 0 && rspFd >= 0 { return true }
+        if helperRunning && sockFd >= 0 { return true }
 
         closePersistentFDs()
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
             if SMCDaemon.isDaemonRunning() {
-                if connectToFIFOs(cmd: SMCDaemon.cmdPath, rsp: SMCDaemon.rspPath) {
+                if connectToDaemon() {
                     return true
                 }
             }
@@ -169,11 +175,11 @@ class FanController {
     // MARK: - FIFO Communication
 
     private func sendCommand(_ command: String, timeout: TimeInterval = 5) -> String? {
-        guard helperRunning, cmdFd >= 0, rspFd >= 0 else { return nil }
+        guard helperRunning, sockFd >= 0 else { return nil }
 
         let cmdBytes = Array((command + "\n").utf8)
         let written = cmdBytes.withUnsafeBufferPointer { ptr -> Int in
-            Darwin.write(cmdFd, ptr.baseAddress!, ptr.count)
+            Darwin.write(sockFd, ptr.baseAddress!, ptr.count)
         }
         guard written > 0 else {
             helperRunning = false
@@ -190,7 +196,7 @@ class FanController {
                 rspBuffer.removeSubrange(rspBuffer.startIndex...nlRange.lowerBound)
                 return String(data: lineData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            let n = Darwin.read(rspFd, &buf, buf.count)
+            let n = Darwin.read(sockFd, &buf, buf.count)
             if n <= 0 {
                 helperRunning = false
                 DispatchQueue.main.async { self.fanState?.hasWriteAccess = false }
