@@ -65,6 +65,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    /// Reopen (Dock click, or `open` on an already-running copy). The menu bar
+    /// popover is the primary way back to the dashboard, but when AppKit still has
+    /// the window object around this restores it without going through the popover.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+        if let existing = NSApp.windows.first(where: {
+            $0.styleMask.contains(.titled) && $0.frame.width >= 700
+        }) {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            refreshMainWindowVisibility()
+        }
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         coordinator.stop()
         // shutdown() restores automatic control and the factory fan minimums itself,
