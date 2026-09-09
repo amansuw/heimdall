@@ -136,7 +136,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let center = NotificationCenter.default
 
         let handler: (Notification) -> Void = { [weak self] _ in
-            self?.refreshMainWindowVisibility()
+            DispatchQueue.main.async { self?.refreshMainWindowVisibility() }
         }
 
         for name in [
@@ -160,14 +160,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshMainWindowVisibility() {
         // Main dashboard is a large titled window; status-item chrome is not.
-        let visible = NSApp.windows.contains { window in
-            guard window.styleMask.contains(.titled) else { return false }
-            guard window.frame.width >= 700 else { return false }
-            return window.isVisible
+        let mainWindows = NSApp.windows.filter {
+            $0.styleMask.contains(.titled) && $0.frame.width >= 700
+        }
+
+        // Polling cadence follows what the user can actually see right now.
+        let visible = mainWindows.contains { window in
+            window.isVisible
                 && !window.isMiniaturized
                 && window.occlusionState.contains(.visible)
         }
         coordinator.setWindowVisible(visible)
+
+        // Cmd-Tab presence is a different question: a minimised window still belongs
+        // in the switcher, a closed one does not. Hence the separate test.
+        let hasOpenWindow = mainWindows.contains { $0.isVisible || $0.isMiniaturized }
+        updateActivationPolicy(showInSwitcher: hasOpenWindow)
+    }
+
+    /// Heimdall launches as an accessory (LSUIElement) so it lives in the menu bar
+    /// without a Dock tile. While the main window is open it becomes a regular app so
+    /// it appears in Cmd-Tab and the Dock, then drops back to accessory on close.
+    private func updateActivationPolicy(showInSwitcher: Bool) {
+        let desired: NSApplication.ActivationPolicy = showInSwitcher ? .regular : .accessory
+        guard NSApp.activationPolicy() != desired else { return }
+        NSApp.setActivationPolicy(desired)
+
+        // Promoting to .regular does not focus the app on its own.
+        if desired == .regular {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     private func setupNotificationHandlers() {
