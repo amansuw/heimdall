@@ -67,8 +67,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         coordinator.stop()
+        // shutdown() restores automatic control and the factory fan minimums itself,
+        // through the privileged helper, before tearing that connection down. The old
+        // unprivileged SMCKit reset here ran after the helper was already gone.
         fanController.shutdown()
-        SMCKit.shared.resetAllFansToAutomatic()
     }
 
     // MARK: - Setup

@@ -19,31 +19,85 @@ class FanController {
 
     private var pendingFanSpeeds: [(Int, Double)]?
 
+    /// Fan indices captured at discovery. The teardown path uses these instead of
+    /// reading fanState, which is owned by the main thread.
+    private var fanIndices: [Int] = []
+
+    /// Lowest F<i>Mn ever observed per fan — see recordFactoryMinimum.
+    private var factoryMinimums: [Int: Double] = [:]
+    private static let factoryMinimumsKey = "heimdall.factoryFanMinimums"
+
     // MARK: - Init
 
     func discoverFans() {
+        loadFactoryMinimums()
+
         let numFans = smc.getNumberOfFans()
         var discovered: [FanInfo] = []
+        var indices: [Int] = []
 
         for i in 0..<numFans {
             let current = smc.getFanCurrentSpeed(fanIndex: i)
-            let min = smc.getFanMinSpeed(fanIndex: i)
+            let liveMin = smc.getFanMinSpeed(fanIndex: i)
             let max = smc.getFanMaxSpeed(fanIndex: i)
             let target = smc.getFanTargetSpeed(fanIndex: i)
 
+            indices.append(i)
             discovered.append(FanInfo(
                 id: i, index: i,
-                currentSpeed: current ?? 0, minSpeed: min ?? 0,
+                currentSpeed: current ?? 0,
+                minSpeed: recordFactoryMinimum(fanIndex: i, observed: liveMin),
                 maxSpeed: max ?? 6500, targetSpeed: target ?? (current ?? 0),
                 isManual: false
             ))
         }
+        fanIndices = indices
+
+        // Probing write access performs an SMC write; keep it off the main thread.
+        let directWrite = smc.testWriteAccess()
 
         DispatchQueue.main.async { [weak self] in
-            self?.fanState?.fans = discovered
-            let directWrite = self?.smc.testWriteAccess() ?? false
-            self?.fanState?.hasWriteAccess = (self?.fanState?.hasWriteAccess ?? false) || directWrite
+            guard let self else { return }
+            self.fanState?.fans = discovered
+            self.fanState?.hasWriteAccess = (self.fanState?.hasWriteAccess ?? false) || directWrite
         }
+    }
+
+    // MARK: - Factory Fan Minimums
+
+    // Forcing a fan writes F<i>Mn, and the SMC keeps that value after the app exits.
+    // Reading F<i>Mn at the next launch therefore returns the *forced* speed and treats
+    // it as the fan's floor, which ratchets the minimum upward every session and skews
+    // both speedPercentage and curve output. Track the lowest value ever seen instead,
+    // and put it back whenever control is released.
+
+    private func loadFactoryMinimums() {
+        guard let raw = UserDefaults.standard.dictionary(forKey: Self.factoryMinimumsKey) as? [String: Double] else { return }
+        factoryMinimums = raw.reduce(into: [:]) { acc, entry in
+            if let index = Int(entry.key) { acc[index] = entry.value }
+        }
+    }
+
+    /// Returns the baseline minimum for a fan, narrowing it if this reading is lower.
+    /// Self-healing: once the SMC is back at its factory floor (after a reset or a
+    /// clean quit) that lower value is captured and kept.
+    @discardableResult
+    private func recordFactoryMinimum(fanIndex: Int, observed: Double?) -> Double {
+        guard let observed, observed > 0 else { return factoryMinimums[fanIndex] ?? 0 }
+        let baseline = Swift.min(factoryMinimums[fanIndex] ?? observed, observed)
+        if factoryMinimums[fanIndex] != baseline {
+            factoryMinimums[fanIndex] = baseline
+            var raw = UserDefaults.standard.dictionary(forKey: Self.factoryMinimumsKey) as? [String: Double] ?? [:]
+            raw["\(fanIndex)"] = baseline
+            UserDefaults.standard.set(raw, forKey: Self.factoryMinimumsKey)
+        }
+        return baseline
+    }
+
+    private func restoreFactoryMinimum(fanIndex: Int) {
+        guard let baseline = factoryMinimums[fanIndex], baseline > 0,
+              let bytes = encodedFanSpeed(baseline, forKey: "F\(fanIndex)Mn") else { return }
+        _ = smcWrite(key: "F\(fanIndex)Mn", bytes: bytes)
     }
 
     func restoreWriteAccessSilently() {
@@ -163,13 +217,26 @@ class FanController {
         return false
     }
 
+    /// Blocking teardown for applicationWillTerminate.
+    ///
+    /// Ordering matters: the fans must be handed back to the firmware and their
+    /// minimums restored while the privileged connection is still open. Closing it
+    /// first drops these writes onto the unprivileged path, where they cannot succeed
+    /// — which is why quitting used to leave fans forced.
     func shutdown() {
-        if forceTestModeActive && helperRunning {
-            _ = smcWrite(key: "Ftst", bytes: [0x00])
-            forceTestModeActive = false
+        let indices = fanIndices
+        helperQueue.sync {
+            for index in indices {
+                _ = self.setFanModeWrite(fanIndex: index, mode: .automatic)
+                self.restoreFactoryMinimum(fanIndex: index)
+            }
+            if self.forceTestModeActive {
+                _ = self.smcWrite(key: "Ftst", bytes: [0x00])
+                self.forceTestModeActive = false
+            }
+            self.helperRunning = false
+            self.closePersistentFDs()
         }
-        helperRunning = false
-        closePersistentFDs()
     }
 
     // MARK: - FIFO Communication
@@ -282,20 +349,20 @@ class FanController {
         return success
     }
 
+    /// Encodes an RPM value in whatever representation the given SMC key uses.
+    private func encodedFanSpeed(_ speed: Double, forKey key: String) -> [UInt8]? {
+        guard let val = smc.readKey(key) else { return nil }
+        if val.dataType.trimmingCharacters(in: .whitespaces) == "flt" {
+            return withUnsafeBytes(of: Float(speed)) { Array($0) }
+        }
+        let s = Int(speed)
+        return [UInt8(s >> 6), UInt8((s << 2) ^ ((s >> 6) << 8))]
+    }
+
     private func setFanTargetWrite(fanIndex: Int, speed: Double) -> Bool {
         var success = false
 
-        func encodeSpeed(_ key: String) -> [UInt8]? {
-            guard let val = smc.readKey(key) else { return nil }
-            let dt = val.dataType.trimmingCharacters(in: .whitespaces)
-            if dt == "flt" {
-                let f = Float(speed)
-                return withUnsafeBytes(of: f) { Array($0) }
-            } else {
-                let s = Int(speed)
-                return [UInt8(s >> 6), UInt8((s << 2) ^ ((s >> 6) << 8))]
-            }
-        }
+        func encodeSpeed(_ key: String) -> [UInt8]? { encodedFanSpeed(speed, forKey: key) }
 
         if let bytes = encodeSpeed("F\(fanIndex)Tg") {
             if smcWrite(key: "F\(fanIndex)Tg", bytes: bytes) { success = true }
@@ -482,13 +549,14 @@ class FanController {
     }
 
     private func resetToAutomatic() {
-        guard let fans = fanState?.fans else { return }
+        let indices = fanIndices
 
         helperQueue.async { [weak self] in
             guard let self else { return }
             self.disableForceTestMode()
-            for fan in fans {
-                _ = self.setFanModeWrite(fanIndex: fan.index, mode: .automatic)
+            for index in indices {
+                _ = self.setFanModeWrite(fanIndex: index, mode: .automatic)
+                self.restoreFactoryMinimum(fanIndex: index)
             }
             DispatchQueue.main.async {
                 for i in 0..<(self.fanState?.fans.count ?? 0) {
