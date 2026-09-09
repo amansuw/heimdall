@@ -20,8 +20,16 @@ class CPUState {
     var processHistory: ProcessHistory?
 
     var totalCores: Int = 0
-    var eCores: Int = 0
-    var pCores: Int = 0
+    /// Topology as discovered at launch, fastest cluster first.
+    var clusters: [CPUCluster] = []
+
+    /// "5 Performance + 6 Efficiency", or just "11 cores" when undifferentiated.
+    var topologyDescription: String {
+        let named = clusters.filter { !$0.letter.isEmpty }
+        guard !named.isEmpty else { return "\(totalCores) cores" }
+        let parts = named.map { "\($0.coreIndices.count) \($0.name)" }
+        return "\(totalCores) cores (\(parts.joined(separator: " + ")))"
+    }
 
     var formattedUptime: String {
         UptimeFormatter.format(uptime)
@@ -43,9 +51,8 @@ class CPUState {
         }
     }
 
-    func applyTopology(total: Int, e: Int, p: Int) {
+    func applyTopology(total: Int, clusters: [CPUCluster]) {
         totalCores = total
-        eCores = e
-        pCores = p
+        self.clusters = clusters
     }
 }

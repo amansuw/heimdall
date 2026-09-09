@@ -17,26 +17,43 @@ struct TopProcess: Identifiable, Sendable {
 
 // MARK: - CPU
 
+/// One CPU cluster as the hardware reports it — Performance, Efficiency, or
+/// whatever a future SoC introduces. Heimdall never assumes there are exactly two,
+/// nor that a cluster owns a particular range of core indices.
+struct CPUCluster: Identifiable, Sendable {
+    let id: Int
+    let name: String
+    /// Raw cluster-type from the device tree ("P", "E", ...). Empty on Intel.
+    let letter: String
+    let coreIndices: [Int]
+    var usage: Double = 0
+}
+
 struct CPUUsage: Sendable {
     var system: Double = 0
     var user: Double = 0
     var idle: Double = 0
     var total: Double = 0
-    var efficiencyCores: Double = 0
-    var performanceCores: Double = 0
+
+    /// Fastest first. Empty until the first sample lands.
+    var clusters: [CPUCluster] = []
 
     struct CoreUsage: Identifiable, Sendable {
         let id: Int
         let usage: Double
-        let isEfficiency: Bool
+        let clusterID: Int
     }
     var perCore: [CoreUsage] = []
 }
 
 struct CPUFrequency: Sendable {
     var allCores: Int = 0
-    var efficiencyCores: Int = 0
-    var performanceCores: Int = 0
+    /// Keyed by CPUCluster.id. Empty when the chip is not in the estimate table.
+    var perCluster: [Int: Int] = [:]
+
+    /// Derived from load against a per-chip ceiling, not measured. Apple Silicon
+    /// exposes no usable frequency sysctl, so the UI must say so.
+    var isEstimated: Bool { !perCluster.isEmpty }
 }
 
 struct LoadAverage: Sendable {

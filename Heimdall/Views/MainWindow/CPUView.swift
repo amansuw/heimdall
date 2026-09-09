@@ -9,7 +9,7 @@ struct CPUView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("CPU").font(.largeTitle).fontWeight(.bold)
-                        Text("\(cpu.totalCores) cores (\(cpu.pCores) P + \(cpu.eCores) E)")
+                        Text(cpu.topologyDescription)
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -22,54 +22,36 @@ struct CPUView: View {
                     GaugeCard(title: "Total", percent: cpu.usage.total,
                               subtitle: String(format: "%.1f%%", cpu.usage.total),
                               icon: "cpu", color: usageColor(cpu.usage.total))
-                    GaugeCard(title: "P-Cores", percent: cpu.usage.performanceCores,
-                              subtitle: String(format: "%.1f%%", cpu.usage.performanceCores),
-                              icon: "bolt.fill", color: usageColor(cpu.usage.performanceCores))
-                    GaugeCard(title: "E-Cores", percent: cpu.usage.efficiencyCores,
-                              subtitle: String(format: "%.1f%%", cpu.usage.efficiencyCores),
-                              icon: "leaf.fill", color: usageColor(cpu.usage.efficiencyCores))
+                    ForEach(cpu.usage.clusters) { cluster in
+                        GaugeCard(title: cluster.name, percent: cluster.usage,
+                                  subtitle: String(format: "%.1f%%", cluster.usage),
+                                  icon: clusterIcon(cluster), color: usageColor(cluster.usage))
+                    }
                 }
                 .padding(.horizontal)
 
-                // Per-core bars - P-Cores
-                let pCores = cpu.usage.perCore.filter { !$0.isEfficiency }
-                let eCores = cpu.usage.perCore.filter { $0.isEfficiency }
-
-                if !pCores.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("P-Core Usage").font(.headline)
-                            Spacer()
-                            Text("\(pCores.count) cores").font(.caption).foregroundStyle(.secondary)
-                        }
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(pCores.count, 8)), spacing: 4) {
-                            ForEach(pCores) { core in
-                                CoreUsageBar(id: core.id, usage: core.usage, color: .blue)
+                // Per-core bars, one section per cluster
+                ForEach(cpu.usage.clusters) { cluster in
+                    let cores = cpu.usage.perCore.filter { $0.clusterID == cluster.id }
+                    if !cores.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("\(cluster.name) Usage").font(.headline)
+                                Spacer()
+                                Text("\(cores.count) cores").font(.caption).foregroundStyle(.secondary)
+                            }
+                            // Wrap by width so a 32- or 40-core part does not stack
+                            // into a wall of rows.
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 60), spacing: 4)], spacing: 4) {
+                                ForEach(cores) { core in
+                                    CoreUsageBar(id: core.id, usage: core.usage, color: clusterColor(cluster))
+                                }
                             }
                         }
+                        .padding()
+                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
                     }
-                    .padding()
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal)
-                }
-
-                // Per-core bars - E-Cores
-                if !eCores.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("E-Core Usage").font(.headline)
-                            Spacer()
-                            Text("\(eCores.count) cores").font(.caption).foregroundStyle(.secondary)
-                        }
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(eCores.count, 8)), spacing: 4) {
-                            ForEach(eCores) { core in
-                                CoreUsageBar(id: core.id, usage: core.usage, color: .green)
-                            }
-                        }
-                    }
-                    .padding()
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal)
                 }
 
                 // Usage history
@@ -125,18 +107,28 @@ struct CPUView: View {
                     .padding()
                     .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Frequency").font(.headline)
-                        HStack {
-                            VStack { Text("All").font(.caption2).foregroundStyle(.secondary); Text("\(cpu.frequency.allCores) MHz").font(.callout).fontDesign(.rounded) }
-                            Spacer()
-                            VStack { Text("P-Cores").font(.caption2).foregroundStyle(.secondary); Text("\(cpu.frequency.performanceCores) MHz").font(.callout).fontDesign(.rounded) }
-                            Spacer()
-                            VStack { Text("E-Cores").font(.caption2).foregroundStyle(.secondary); Text("\(cpu.frequency.efficiencyCores) MHz").font(.callout).fontDesign(.rounded) }
+                    // Only shown for chips with a known ceiling; otherwise the numbers
+                    // would be invented rather than merely approximate.
+                    if cpu.frequency.isEstimated {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 4) {
+                                Text("Frequency").font(.headline)
+                                Text("estimated").font(.caption2).foregroundStyle(.secondary)
+                                    .help("Derived from load against this chip's rated maximum. macOS does not expose measured clocks.")
+                            }
+                            HStack {
+                                VStack { Text("All").font(.caption2).foregroundStyle(.secondary); Text("\(cpu.frequency.allCores) MHz").font(.callout).fontDesign(.rounded) }
+                                ForEach(cpu.usage.clusters) { cluster in
+                                    if let mhz = cpu.frequency.perCluster[cluster.id] {
+                                        Spacer()
+                                        VStack { Text(cluster.name).font(.caption2).foregroundStyle(.secondary); Text("\(mhz) MHz").font(.callout).fontDesign(.rounded) }
+                                    }
+                                }
+                            }
                         }
+                        .padding()
+                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                     }
-                    .padding()
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .padding(.horizontal)
 
@@ -155,6 +147,21 @@ struct CPUView: View {
         if v <= 60 { return .yellow }
         if v <= 80 { return .orange }
         return .red
+    }
+
+    /// Cluster colours/icons are assigned by position, so a third cluster type
+    /// renders sensibly without needing to know what it is.
+    private func clusterColor(_ cluster: CPUCluster) -> Color {
+        let palette: [Color] = [.blue, .green, .purple, .orange]
+        return palette[cluster.id % palette.count]
+    }
+
+    private func clusterIcon(_ cluster: CPUCluster) -> String {
+        switch cluster.letter {
+        case "P": return "bolt.fill"
+        case "E": return "leaf.fill"
+        default:  return "cpu"
+        }
     }
 
     private func legendDot(color: Color, label: String) -> some View {

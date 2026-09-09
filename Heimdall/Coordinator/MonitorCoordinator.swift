@@ -56,7 +56,7 @@ class MonitorCoordinator {
         // Apply CPU topology
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.cpuState?.applyTopology(total: self.cpuReader.totalCores, e: self.cpuReader.eCores, p: self.cpuReader.pCores)
+            self.cpuState?.applyTopology(total: self.cpuReader.totalCores, clusters: self.cpuReader.clusters)
         }
 
         // Fetch DNS servers once

@@ -11,10 +11,16 @@ struct CPUReaderResult: Sendable {
 
 class CPUReader {
     private(set) var totalCores: Int = 0
-    private(set) var eCores: Int = 0
-    private(set) var pCores: Int = 0
-    private(set) var maxPFreqMHz: Int = 0
-    private(set) var maxEFreqMHz: Int = 0
+
+    /// Clusters in display order, fastest first. Empty coreIndices never occur.
+    private(set) var clusters: [CPUCluster] = []
+
+    /// core index -> position in `clusters`
+    private var clusterIDByCore: [Int: Int] = [:]
+
+    /// Estimated ceiling per cluster, keyed the same way. Absent when the chip is
+    /// not in the lookup table, in which case no frequency is reported at all.
+    private var maxFreqMHzByCluster: [Int: Int] = [:]
 
     private var previousCoreTicks: [(user: UInt64, system: UInt64, idle: UInt64, nice: UInt64)] = []
     private var previousTotalTicks: (user: UInt64, system: UInt64, idle: UInt64, nice: UInt64) = (0, 0, 0, 0)
@@ -23,34 +29,162 @@ class CPUReader {
         detectTopology()
     }
 
+    // MARK: - Topology
+
     private func detectTopology() {
         totalCores = ProcessInfo.processInfo.processorCount
 
-        var eCount: Int32 = 0
-        var pCount: Int32 = 0
-        var size = MemoryLayout<Int32>.size
+        // Membership comes from the device tree. Deriving it from core index order
+        // (e.g. "the first N are performance cores") is wrong: on an M3 Pro the
+        // efficiency cores occupy the *low* indices, and the ordering is an
+        // implementation detail Apple can change between chips.
+        let letterByCore = Self.readClusterMap()
 
-        if sysctlbyname("hw.perflevel1.logicalcpu", &eCount, &size, nil, 0) == 0 {
-            eCores = Int(eCount)
+        if letterByCore.isEmpty {
+            // Intel, or an unreadable device tree: present one undifferentiated cluster
+            // rather than inventing a split we cannot substantiate.
+            clusters = [CPUCluster(id: 0, name: "CPU", letter: "", coreIndices: Array(0..<totalCores))]
+        } else {
+            clusters = Self.buildClusters(letterByCore: letterByCore, levels: Self.readPerfLevels())
         }
-        size = MemoryLayout<Int32>.size
-        if sysctlbyname("hw.perflevel0.logicalcpu", &pCount, &size, nil, 0) == 0 {
-            pCores = Int(pCount)
+
+        for cluster in clusters {
+            for core in cluster.coreIndices { clusterIDByCore[core] = cluster.id }
         }
 
-        if eCores == 0 && pCores == 0 { pCores = totalCores }
-
-        let (pMax, eMax) = resolveMaxFrequencies()
-        maxPFreqMHz = pMax
-        maxEFreqMHz = eMax
+        maxFreqMHzByCluster = Self.estimatedMaxFrequencies(for: clusters)
     }
 
-    private func resolveMaxFrequencies() -> (Int, Int) {
+    /// logical-cpu-id -> cluster-type letter, straight from IODeviceTree:/cpus.
+    private static func readClusterMap() -> [Int: String] {
+        var result: [Int: String] = [:]
+
+        let root = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/cpus")
+        guard root != 0 else { return result }
+        defer { IOObjectRelease(root) }
+
+        var iterator: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(root, kIODeviceTreePlane, &iterator) == KERN_SUCCESS else { return result }
+        defer { IOObjectRelease(iterator) }
+
+        var child = IOIteratorNext(iterator)
+        while child != 0 {
+            defer { IOObjectRelease(child); child = IOIteratorNext(iterator) }
+
+            func property(_ name: String) -> Any? {
+                IORegistryEntryCreateCFProperty(child, name as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+            }
+
+            // cluster-type is an ASCII letter in a Data, sometimes NUL terminated.
+            var letter: String?
+            if let data = property("cluster-type") as? Data {
+                letter = String(decoding: data.prefix { $0 != 0 }, as: UTF8.self)
+            } else if let text = property("cluster-type") as? String {
+                letter = text
+            }
+
+            // logical-cpu-id arrives as a number on some systems, raw bytes on others.
+            var logicalID: Int?
+            if let number = property("logical-cpu-id") as? NSNumber {
+                logicalID = number.intValue
+            } else if let data = property("logical-cpu-id") as? Data {
+                logicalID = data.reversed().reduce(0) { ($0 << 8) | Int($1) }
+            }
+
+            if let letter, let logicalID, !letter.isEmpty {
+                result[logicalID] = letter
+            }
+        }
+        return result
+    }
+
+    /// Performance levels from sysctl, fastest first. Supplies human names; the
+    /// count comes from hw.nperflevels so a third cluster type needs no code change.
+    private static func readPerfLevels() -> [(name: String, coreCount: Int)] {
+        var levelCount: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("hw.nperflevels", &levelCount, &size, nil, 0) == 0, levelCount > 0 else { return [] }
+
+        return (0..<Int(levelCount)).compactMap { index in
+            var nameSize = 0
+            let nameKey = "hw.perflevel\(index).name"
+            guard sysctlbyname(nameKey, nil, &nameSize, nil, 0) == 0, nameSize > 0 else { return nil }
+            var nameBuf = [CChar](repeating: 0, count: nameSize)
+            guard sysctlbyname(nameKey, &nameBuf, &nameSize, nil, 0) == 0 else { return nil }
+
+            var cores: Int32 = 0
+            var coreSize = MemoryLayout<Int32>.size
+            guard sysctlbyname("hw.perflevel\(index).logicalcpu", &cores, &coreSize, nil, 0) == 0 else { return nil }
+
+            return (String(cString: nameBuf), Int(cores))
+        }
+    }
+
+    /// Pairs device-tree clusters with sysctl performance levels by core count so
+    /// they inherit the OS's own names and fastest-first ordering. Falls back to
+    /// letter-derived names when the two views disagree.
+    private static func buildClusters(
+        letterByCore: [Int: String],
+        levels: [(name: String, coreCount: Int)]
+    ) -> [CPUCluster] {
+        var coresByLetter: [String: [Int]] = [:]
+        for (core, letter) in letterByCore { coresByLetter[letter, default: []].append(core) }
+        let groups = coresByLetter.map { (letter: $0.key, cores: $0.value.sorted()) }
+
+        var unmatched = Array(levels.enumerated())
+        var ranked: [(rank: Int, name: String, group: (letter: String, cores: [Int]))] = []
+
+        for group in groups {
+            guard let slot = unmatched.firstIndex(where: { $0.element.coreCount == group.cores.count }) else {
+                ranked.removeAll()
+                break
+            }
+            let (levelIndex, level) = unmatched.remove(at: slot)
+            ranked.append((levelIndex, level.name, group))
+        }
+
+        if ranked.count == groups.count, !ranked.isEmpty {
+            return ranked.sorted { $0.rank < $1.rank }.enumerated().map { index, entry in
+                CPUCluster(id: index, name: entry.name, letter: entry.group.letter, coreIndices: entry.group.cores)
+            }
+        }
+
+        // Fallback: name and order from the cluster letter alone.
+        func rank(_ letter: String) -> Int {
+            switch letter {
+            case "P": return 0
+            case "E": return 1
+            default: return 2
+            }
+        }
+        return groups
+            .sorted { (rank($0.letter), $0.letter) < (rank($1.letter), $1.letter) }
+            .enumerated()
+            .map { index, group in
+                CPUCluster(id: index, name: Self.name(forLetter: group.letter), letter: group.letter, coreIndices: group.cores)
+            }
+    }
+
+    private static func name(forLetter letter: String) -> String {
+        switch letter {
+        case "P": return "Performance"
+        case "E": return "Efficiency"
+        case "": return "CPU"
+        default: return "Cluster \(letter)"
+        }
+    }
+
+    // MARK: - Frequency ceilings (estimates)
+
+    /// Apple Silicon does not publish a usable hw.cpufrequency_max, so these come
+    /// from a per-chip table. An unrecognised chip yields no entries, and the UI
+    /// then shows nothing rather than a fabricated 0 MHz.
+    private static func estimatedMaxFrequencies(for clusters: [CPUCluster]) -> [Int: Int] {
         var maxFreq: UInt64 = 0
         var size = MemoryLayout<UInt64>.size
         if sysctlbyname("hw.cpufrequency_max", &maxFreq, &size, nil, 0) == 0, maxFreq > 0 {
             let mhz = Int(maxFreq / 1_000_000)
-            return (mhz, mhz)
+            return Dictionary(uniqueKeysWithValues: clusters.map { ($0.id, mhz) })
         }
 
         var brandBuf = [CChar](repeating: 0, count: 256)
@@ -58,30 +192,34 @@ class CPUReader {
         sysctlbyname("machdep.cpu.brand_string", &brandBuf, &brandSize, nil, 0)
         let brand = String(cString: brandBuf).lowercased()
 
+        let pAndE: (Int, Int)?
         switch true {
-        case brand.contains("m4 max"):   return (4400, 2900)
-        case brand.contains("m4 pro"):   return (4400, 2900)
-        case brand.contains("m4"):       return (4400, 2600)
-        case brand.contains("m3 max"):   return (4050, 2748)
-        case brand.contains("m3 pro"):   return (4050, 2748)
-        case brand.contains("m3"):       return (4050, 2748)
-        case brand.contains("m2 max"):   return (3490, 2420)
-        case brand.contains("m2 pro"):   return (3490, 2420)
-        case brand.contains("m2 ultra"): return (3490, 2420)
-        case brand.contains("m2"):       return (3490, 2420)
-        case brand.contains("m1 max"):   return (3200, 2064)
-        case brand.contains("m1 pro"):   return (3200, 2064)
-        case brand.contains("m1 ultra"): return (3200, 2064)
-        case brand.contains("m1"):       return (3200, 2064)
-        default:                         return (0, 0)
+        case brand.contains("m4"): pAndE = (4400, brand.contains("pro") || brand.contains("max") ? 2900 : 2600)
+        case brand.contains("m3"): pAndE = (4050, 2748)
+        case brand.contains("m2"): pAndE = (3490, 2420)
+        case brand.contains("m1"): pAndE = (3200, 2064)
+        default:                   pAndE = nil
         }
+        guard let (pMax, eMax) = pAndE else { return [:] }
+
+        var result: [Int: Int] = [:]
+        for cluster in clusters {
+            switch cluster.letter {
+            case "P": result[cluster.id] = pMax
+            case "E": result[cluster.id] = eMax
+            default:  break
+            }
+        }
+        return result
     }
+
+    // MARK: - Sampling
 
     func read() -> CPUReaderResult {
         let usage = readPerCoreUsage()
         let load = readLoadAverage()
         let up = readUptime()
-        let freq = readFrequency(pUsage: usage.performanceCores, eUsage: usage.efficiencyCores)
+        let freq = readFrequency(clusterUsage: usage.clusters)
         let snapshot = CPUSnapshot(timestamp: Date(), total: usage.total, user: usage.user, system: usage.system)
         return CPUReaderResult(usage: usage, load: load, uptime: up, freq: freq, snapshot: snapshot)
     }
@@ -102,8 +240,9 @@ class CPUReader {
         var totalUser: UInt64 = 0, totalSystem: UInt64 = 0, totalIdle: UInt64 = 0, totalNice: UInt64 = 0
         var coreUsages: [CPUUsage.CoreUsage] = []
         coreUsages.reserveCapacity(coreCount)
-        var eTotal: Double = 0, pTotal: Double = 0
-        var eCount = 0, pCount = 0
+
+        var sumByCluster: [Int: Double] = [:]
+        var countByCluster: [Int: Int] = [:]
 
         for i in 0..<coreCount {
             let offset = Int(CPU_STATE_MAX) * i
@@ -125,11 +264,10 @@ class CPUReader {
                 if dTotal > 0 { coreUsage = Double(dUser + dSystem + dNice) / Double(dTotal) * 100 }
             }
 
-            let isEfficiency = i >= pCores && eCores > 0
-            coreUsages.append(CPUUsage.CoreUsage(id: i, usage: coreUsage, isEfficiency: isEfficiency))
-
-            if isEfficiency { eTotal += coreUsage; eCount += 1 }
-            else { pTotal += coreUsage; pCount += 1 }
+            let clusterID = clusterIDByCore[i] ?? 0
+            coreUsages.append(CPUUsage.CoreUsage(id: i, usage: coreUsage, clusterID: clusterID))
+            sumByCluster[clusterID, default: 0] += coreUsage
+            countByCluster[clusterID, default: 0] += 1
         }
 
         previousCoreTicks = (0..<coreCount).map { i in
@@ -157,8 +295,12 @@ class CPUReader {
 
         previousTotalTicks = (totalUser, totalSystem, totalIdle, totalNice)
         overallUsage.perCore = coreUsages
-        overallUsage.efficiencyCores = eCount > 0 ? eTotal / Double(eCount) : 0
-        overallUsage.performanceCores = pCount > 0 ? pTotal / Double(pCount) : 0
+        overallUsage.clusters = clusters.map { cluster in
+            var populated = cluster
+            let count = countByCluster[cluster.id] ?? 0
+            populated.usage = count > 0 ? (sumByCluster[cluster.id] ?? 0) / Double(count) : 0
+            return populated
+        }
 
         return overallUsage
     }
@@ -177,26 +319,24 @@ class CPUReader {
         return Date().timeIntervalSince(Date(timeIntervalSince1970: TimeInterval(bootTime.tv_sec)))
     }
 
-    private func readFrequency(pUsage: Double, eUsage: Double) -> CPUFrequency {
+    /// Scales each cluster's estimated ceiling by its current load. This is an
+    /// approximation, not a measurement — see CPUFrequency.isEstimated.
+    private func readFrequency(clusterUsage: [CPUCluster]) -> CPUFrequency {
         var freq = CPUFrequency()
-        if maxPFreqMHz > 0 {
-            let pCurrent = Int(Double(maxPFreqMHz) * max(pUsage, 1.0) / 100.0)
-            freq.performanceCores = max(pCurrent, maxPFreqMHz / 20)
+        guard !maxFreqMHzByCluster.isEmpty else { return freq }
+
+        var weightedSum = 0.0
+        var weightedCores = 0
+
+        for cluster in clusterUsage {
+            guard let ceiling = maxFreqMHzByCluster[cluster.id], ceiling > 0 else { continue }
+            let current = max(Int(Double(ceiling) * max(cluster.usage, 1.0) / 100.0), ceiling / 20)
+            freq.perCluster[cluster.id] = current
+            weightedSum += Double(current) * Double(cluster.coreIndices.count)
+            weightedCores += cluster.coreIndices.count
         }
-        if maxEFreqMHz > 0 {
-            let eCurrent = Int(Double(maxEFreqMHz) * max(eUsage, 1.0) / 100.0)
-            freq.efficiencyCores = max(eCurrent, maxEFreqMHz / 20)
-        }
-        let totalCoreCount = pCores + eCores
-        if totalCoreCount > 0 && (freq.performanceCores > 0 || freq.efficiencyCores > 0) {
-            let pContrib = Double(max(freq.performanceCores, 0)) * Double(pCores)
-            let eContrib = Double(max(freq.efficiencyCores, 0)) * Double(eCores)
-            freq.allCores = Int((pContrib + eContrib) / Double(totalCoreCount))
-        } else if freq.performanceCores > 0 {
-            freq.allCores = freq.performanceCores
-        } else {
-            freq.allCores = freq.efficiencyCores
-        }
+
+        if weightedCores > 0 { freq.allCores = Int(weightedSum / Double(weightedCores)) }
         return freq
     }
 }
