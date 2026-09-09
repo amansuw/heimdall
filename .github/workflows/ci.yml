@@ -1,0 +1,130 @@
+name: CI
+
+# Builds Heimdall on every push and pull request.
+#
+# Beyond catching breakage, this is a second real machine: the author develops
+# on an M3 Pro, and GitHub's macOS runners are also Apple Silicon but with a
+# clean toolchain, a different Xcode point release, and no local caches or
+# signing identities. A build that only works on the author's Mac fails here.
+
+on:
+  push:
+    branches:
+      - "**"
+    tags-ignore:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-15 is Sequoia, the minimum supported OS. macos-latest tracks the
+        # newest image GitHub offers (Tahoe / macOS 26 and beyond), which is the
+        # other end of the supported range.
+        runner: [macos-15, macos-latest]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          uname -m
+
+      - name: Build Release (ad-hoc signed)
+        env:
+          DERIVED: ${{ runner.temp }}/DerivedData
+        run: |
+          set -euo pipefail
+          # Same ad-hoc signing settings as the release workflow, so CI exercises
+          # exactly the configuration that ships. No Developer ID exists.
+          xcodebuild \
+            -project Heimdall.xcodeproj \
+            -scheme Heimdall \
+            -configuration Release \
+            -derivedDataPath "$DERIVED" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Verify the built bundle
+        env:
+          DERIVED: ${{ runner.temp }}/DerivedData
+        run: |
+          set -euo pipefail
+          APP="$DERIVED/Build/Products/Release/Heimdall.app"
+          test -d "$APP" || { echo "::error::Heimdall.app was not produced"; exit 1; }
+          test -x "$APP/Contents/MacOS/Heimdall" || { echo "::error::executable missing"; exit 1; }
+          lipo -archs "$APP/Contents/MacOS/Heimdall"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Run tests if any test targets exist
+        run: |
+          set -euo pipefail
+          # The project currently has no test target. Rather than hard-code that
+          # fact, ask the project and run tests only when a *Tests target shows
+          # up, so adding one later needs no workflow change.
+          LIST="$(xcodebuild -project Heimdall.xcodeproj -list)"
+          echo "$LIST"
+          if printf '%s\n' "$LIST" | grep -qiE '^[[:space:]]+.*Tests[[:space:]]*$'; then
+            echo "Test target detected; running tests."
+            xcodebuild \
+              -project Heimdall.xcodeproj \
+              -scheme Heimdall \
+              -configuration Debug \
+              -derivedDataPath "${{ runner.temp }}/DerivedDataTests" \
+              CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY="-" \
+              CODE_SIGNING_REQUIRED=YES \
+              CODE_SIGNING_ALLOWED=YES \
+              DEVELOPMENT_TEAM="" \
+              test
+          else
+            echo "No test targets in the project; skipping the test phase."
+          fi
+
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Syntax-check shell scripts
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r f; do
+            found=1
+            echo "bash -n $f"
+            bash -n "$f"
+          done < <(find scripts -type f -name '*.sh' -print)
+          if [ "$found" -eq 0 ]; then
+            echo "::warning::no shell scripts found under scripts/"
+          fi
+
+      - name: ShellCheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          find scripts -type f -name '*.sh' -print0 | xargs -0 -r shellcheck
