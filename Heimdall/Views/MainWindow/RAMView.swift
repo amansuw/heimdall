@@ -65,7 +65,9 @@ struct RAMView: View {
                     let historyArray = ram.filteredHistory
                     if historyArray.count >= 2 {
                         CanvasLineChart(
-                            data: historyArray.map(\.usagePercent),
+                            historyArray,
+                            window: ram.historyRange.window,
+                            value: { $0.usagePercent },
                             color: pressureColor,
                             fillColor: pressureColor.opacity(0.15),
                             yRange: 0...100,

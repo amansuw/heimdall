@@ -48,10 +48,10 @@ struct GPUView: View {
                     let historyArray = gpu.filteredHistory
                     if historyArray.count >= 2 {
                         CanvasMultiLineChart(series: [
-                            .init(data: historyArray.map(\.utilization), color: .blue, label: "Total"),
-                            .init(data: historyArray.map(\.renderUtilization), color: .green, label: "Renderer"),
-                            .init(data: historyArray.map(\.tilerUtilization), color: .orange, label: "Tiler"),
-                        ], yRange: 0...100)
+                            .init(historyArray, value: { $0.utilization }, color: .blue, label: "Total"),
+                            .init(historyArray, value: { $0.renderUtilization }, color: .green, label: "Renderer"),
+                            .init(historyArray, value: { $0.tilerUtilization }, color: .orange, label: "Tiler"),
+                        ], window: gpu.historyRange.window, yRange: 0...100)
                         .frame(height: 150)
                         HStack(spacing: 16) {
                             legendDot(color: .blue, label: "Total")
