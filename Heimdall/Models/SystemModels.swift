@@ -169,41 +169,51 @@ struct FanInfo: Identifiable, Sendable {
 
 // MARK: - History Snapshots
 
-struct CPUSnapshot: Sendable {
+/// Anything a chart can plot: it carries the wall-clock time of the sample.
+/// Charts plot against these timestamps, never against array index — the
+/// polling cadence is not constant (1s fan-boost / 2s visible / 30s background,
+/// with sensors sampled only every 5th fast tick).
+protocol TimestampedSample {
+    var timestamp: Date { get }
+}
+
+struct CPUSnapshot: Sendable, TimestampedSample {
     let timestamp: Date
     let total: Double
     let user: Double
     let system: Double
 }
 
-struct TemperatureSnapshot: Sendable {
+/// `nil` means the tick found no matching sensors — a MISSING sample, not 0.
+/// Charts break the line across these instead of plotting a false dip to zero.
+struct TemperatureSnapshot: Sendable, TimestampedSample {
     let timestamp: Date
-    let avgCPU: Double
-    let avgGPU: Double
-    let maxCPU: Double
-    let maxGPU: Double
+    let avgCPU: Double?
+    let avgGPU: Double?
+    let maxCPU: Double?
+    let maxGPU: Double?
 }
 
-struct NetworkSnapshot: Sendable {
+struct NetworkSnapshot: Sendable, TimestampedSample {
     let timestamp: Date
     let downloadBytesPerSec: UInt64
     let uploadBytesPerSec: UInt64
 }
 
-struct DiskIOSnapshot: Sendable {
+struct DiskIOSnapshot: Sendable, TimestampedSample {
     let timestamp: Date
     let readBytesPerSec: UInt64
     let writeBytesPerSec: UInt64
 }
 
-struct GPUSnapshot: Sendable {
+struct GPUSnapshot: Sendable, TimestampedSample {
     let timestamp: Date
     let utilization: Double
     let renderUtilization: Double
     let tilerUtilization: Double
 }
 
-struct RAMSnapshot: Sendable {
+struct RAMSnapshot: Sendable, TimestampedSample {
     let timestamp: Date
     let usagePercent: Double
     let appBytes: UInt64

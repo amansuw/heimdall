@@ -29,11 +29,13 @@ struct PopoverView: View {
                 let history = sensors.filteredHistory
                 if history.count >= 2 {
                     CanvasMultiLineChart(series: [
-                        .init(data: history.map(\.avgCPU), color: .blue, label: "CPU Avg"),
-                        .init(data: history.map(\.maxCPU), color: .blue, label: "CPU Peak", dashed: true),
-                        .init(data: history.map(\.avgGPU), color: .green, label: "GPU Avg"),
-                        .init(data: history.map(\.maxGPU), color: .green, label: "GPU Peak", dashed: true),
-                    ])
+                        .init(history, value: { $0.avgCPU }, color: .blue, label: "CPU Avg"),
+                        .init(history, value: { $0.maxCPU }, color: .blue, label: "CPU Peak", dashed: true),
+                        .init(history, value: { $0.avgGPU }, color: .green, label: "GPU Avg"),
+                        .init(history, value: { $0.maxGPU }, color: .green, label: "GPU Peak", dashed: true),
+                    ], window: sensors.historyRange.window,
+                       yFormatter: { String(format: "%.0f°", $0) },
+                       tooltipFormatter: { String(format: "%.1f°", $0) })
                     .frame(height: 100)
                     .padding(.horizontal, 10)
                 }

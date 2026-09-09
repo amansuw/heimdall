@@ -69,9 +69,10 @@ struct DiskView: View {
                     if historyArray.count >= 2 {
                         CanvasMultiLineChart(
                             series: [
-                                .init(data: historyArray.map { Double($0.readBytesPerSec) }, color: .blue, label: "Read"),
-                                .init(data: historyArray.map { Double($0.writeBytesPerSec) }, color: .green, label: "Write"),
+                                .init(historyArray, value: { Double($0.readBytesPerSec) }, color: .blue, label: "Read"),
+                                .init(historyArray, value: { Double($0.writeBytesPerSec) }, color: .green, label: "Write"),
                             ],
+                            window: disk.historyRange.window,
                             yFormatter: { ByteFormatter.formatSpeed($0) },
                             tooltipFormatter: { ByteFormatter.formatSpeed($0) }
                         )

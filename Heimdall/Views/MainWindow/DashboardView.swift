@@ -97,7 +97,7 @@ struct DashboardView: View {
                         .pickerStyle(.segmented)
                         .labelsHidden()
                     }
-                    DashboardTempChart(history: sensors.filteredHistory)
+                    DashboardTempChart(history: sensors.filteredHistory, window: sensors.historyRange.window)
                 }
                 .padding(.horizontal)
 
@@ -300,6 +300,7 @@ struct StatCard: View {
 
 struct DashboardTempChart: View {
     let history: [TemperatureSnapshot]
+    let window: TimeInterval
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -308,18 +309,18 @@ struct DashboardTempChart: View {
                 Text("Temperature History").font(.headline)
                 Spacer()
                 if let last = history.last {
-                    Text("CPU \(String(format: "%.0f", last.avgCPU))° · GPU \(String(format: "%.0f", last.avgGPU))°")
+                    Text("CPU \(tempLabel(last.avgCPU)) · GPU \(tempLabel(last.avgGPU))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
             if history.count >= 2 {
                 CanvasMultiLineChart(series: [
-                    .init(data: history.map(\.avgCPU), color: .blue, label: "CPU Avg"),
-                    .init(data: history.map(\.maxCPU), color: .blue, label: "CPU Peak", dashed: true),
-                    .init(data: history.map(\.avgGPU), color: .green, label: "GPU Avg"),
-                    .init(data: history.map(\.maxGPU), color: .green, label: "GPU Peak", dashed: true),
-                ])
+                    .init(history, value: { $0.avgCPU }, color: .blue, label: "CPU Avg"),
+                    .init(history, value: { $0.maxCPU }, color: .blue, label: "CPU Peak", dashed: true),
+                    .init(history, value: { $0.avgGPU }, color: .green, label: "GPU Avg"),
+                    .init(history, value: { $0.maxGPU }, color: .green, label: "GPU Peak", dashed: true),
+                ], window: window, yFormatter: { String(format: "%.0f°", $0) }, tooltipFormatter: { String(format: "%.1f°", $0) })
                 .frame(height: 180)
             } else {
                 HStack { Spacer(); ProgressView(); Text("Collecting data...").font(.caption).foregroundStyle(.secondary); Spacer() }
@@ -336,6 +337,11 @@ struct DashboardTempChart: View {
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func tempLabel(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.0f°", value)
     }
 
     private func legendLine(color: Color, label: String, dashed: Bool = false) -> some View {

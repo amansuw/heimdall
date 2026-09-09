@@ -57,9 +57,10 @@ struct NetworkView: View {
                     if historyArray.count >= 2 {
                         CanvasMultiLineChart(
                             series: [
-                                .init(data: historyArray.map { Double($0.downloadBytesPerSec) }, color: .blue, label: "Download"),
-                                .init(data: historyArray.map { Double($0.uploadBytesPerSec) }, color: .green, label: "Upload"),
+                                .init(historyArray, value: { Double($0.downloadBytesPerSec) }, color: .blue, label: "Download"),
+                                .init(historyArray, value: { Double($0.uploadBytesPerSec) }, color: .green, label: "Upload"),
                             ],
+                            window: net.historyRange.window,
                             yFormatter: { ByteFormatter.formatSpeed($0) },
                             tooltipFormatter: { ByteFormatter.formatSpeed($0) }
                         )

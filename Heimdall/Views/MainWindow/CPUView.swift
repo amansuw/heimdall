@@ -92,10 +92,10 @@ struct CPUView: View {
                     let historyArray = cpu.filteredHistory
                     if historyArray.count >= 2 {
                         CanvasMultiLineChart(series: [
-                            .init(data: historyArray.map(\.total), color: .blue, label: "Total"),
-                            .init(data: historyArray.map(\.user), color: .green, label: "User"),
-                            .init(data: historyArray.map(\.system), color: .orange, label: "System"),
-                        ], yRange: 0...100)
+                            .init(historyArray, value: { $0.total }, color: .blue, label: "Total"),
+                            .init(historyArray, value: { $0.user }, color: .green, label: "User"),
+                            .init(historyArray, value: { $0.system }, color: .orange, label: "System"),
+                        ], window: cpu.historyRange.window, yRange: 0...100)
                         .frame(height: 150)
                         HStack(spacing: 16) {
                             legendDot(color: .blue, label: "Total")

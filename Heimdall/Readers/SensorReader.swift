@@ -95,12 +95,16 @@ class SensorReader {
             }
         }
 
-        let avgCPU = cpuTempCount > 0 ? cpuTempSum / Double(cpuTempCount) : 0
-        let avgGPU = gpuTempCount > 0 ? gpuTempSum / Double(gpuTempCount) : 0
+        // A tick with no matching sensors is a MISSING sample, not 0 — recording
+        // 0 would drag the chart's y-domain down and draw a false dip to zero.
+        let avgCPU: Double? = cpuTempCount > 0 ? cpuTempSum / Double(cpuTempCount) : nil
+        let avgGPU: Double? = gpuTempCount > 0 ? gpuTempSum / Double(gpuTempCount) : nil
+        let maxCPU: Double? = cpuTempCount > 0 ? cpuTempMax : nil
+        let maxGPU: Double? = gpuTempCount > 0 ? gpuTempMax : nil
 
         return SensorReaderResult(
             all: scratchAll, temp: scratchTemp, volt: scratchVolt, curr: scratchCurr, pow: scratchPow,
-            snapshot: TemperatureSnapshot(timestamp: Date(), avgCPU: avgCPU, avgGPU: avgGPU, maxCPU: cpuTempMax, maxGPU: gpuTempMax)
+            snapshot: TemperatureSnapshot(timestamp: Date(), avgCPU: avgCPU, avgGPU: avgGPU, maxCPU: maxCPU, maxGPU: maxGPU)
         )
     }
 
