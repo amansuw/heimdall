@@ -1,0 +1,291 @@
+name: Release
+
+# Builds, packages and publishes Heimdall when a version tag is pushed.
+#
+# Heimdall has no paid Apple Developer account, so the app is ad-hoc signed and
+# is NOT notarized. In place of notarization we publish a build provenance
+# attestation: a signed, publicly verifiable statement that this exact DMG was
+# produced by this workflow, from this repository, at this commit. Anyone can
+# check it with `gh attestation verify`.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish (e.g. v1.2)"
+        required: true
+        type: string
+
+# Required by actions/attest-build-provenance:
+#   id-token: write     -> mint the OIDC token that proves the workflow identity
+#   attestations: write -> record the attestation against this repository
+#   contents: write     -> create the GitHub Release and upload its assets
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, package, attest, publish
+    # Apple Silicon runner. Bump this label when GitHub retires the image.
+    runs-on: macos-15
+
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve version and tag
+        id: meta
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dmg=Heimdall-$VERSION.dmg" >> "$GITHUB_OUTPUT"
+          echo "Building $TAG (version $VERSION)"
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          uname -m
+
+      - name: Build Release (ad-hoc signed)
+        env:
+          DERIVED: ${{ runner.temp }}/DerivedData
+        run: |
+          set -euo pipefail
+          # The project already pins CODE_SIGN_IDENTITY to "-" (ad-hoc) with an
+          # empty DEVELOPMENT_TEAM; restating it here means a stray local
+          # override can never leak a real identity into a published build.
+          #
+          # Signing stays ENABLED on purpose: arm64 macOS refuses to execute a
+          # binary carrying no signature at all, so "unsigned" is not an option.
+          # The only choice available without a paid account is "ad-hoc signed,
+          # and therefore not trusted by Gatekeeper".
+          xcodebuild \
+            -project Heimdall.xcodeproj \
+            -scheme Heimdall \
+            -configuration Release \
+            -derivedDataPath "$DERIVED" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Stage the app bundle
+        id: stage
+        env:
+          DERIVED: ${{ runner.temp }}/DerivedData
+        run: |
+          set -euo pipefail
+          APP="$DERIVED/Build/Products/Release/Heimdall.app"
+          test -d "$APP" || { echo "::error::Heimdall.app not found at $APP"; exit 1; }
+
+          mkdir -p dist/dmg-src
+          cp -R "$APP" dist/dmg-src/Heimdall.app
+          echo "app=$PWD/dist/dmg-src/Heimdall.app" >> "$GITHUB_OUTPUT"
+
+          echo "Architectures:"
+          lipo -archs "dist/dmg-src/Heimdall.app/Contents/MacOS/Heimdall" || true
+
+      - name: Verify the ad-hoc signature
+        env:
+          APP: ${{ steps.stage.outputs.app }}
+        run: |
+          set -euo pipefail
+          # The bundle must at least be internally consistent...
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --verbose=4 "$APP" 2>&1 | sed 's/^/  /'
+          # ...but Gatekeeper still rejects it, because an ad-hoc signature
+          # carries no Developer ID and the app is not notarized. We print the
+          # rejection rather than failing on it: it is the expected result, and
+          # the reason the README ships a first-launch approval walkthrough.
+          echo "Gatekeeper assessment (a rejection here is expected and normal):"
+          spctl --assess --type execute -vv "$APP" 2>&1 | sed 's/^/  /' || true
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build the DMG
+        id: dmg
+        env:
+          DMG_NAME: ${{ steps.meta.outputs.dmg }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          DMG="dist/$DMG_NAME"
+          ICON="dist/dmg-src/Heimdall.app/Contents/Resources/AppIcon.icns"
+
+          VOLICON=()
+          if [ -f "$ICON" ]; then
+            VOLICON=(--volicon "$ICON")
+          else
+            echo "::warning::AppIcon.icns not found; DMG will use the default volume icon"
+          fi
+
+          # create-dmg drives Finder over AppleScript to lay the window out. On
+          # a headless runner that step can fail even though a perfectly usable
+          # image was written, so success is judged by whether the DMG exists.
+          set +e
+          create-dmg \
+            --volname "Heimdall $VERSION" \
+            "${VOLICON[@]}" \
+            --window-pos 200 120 \
+            --window-size 660 420 \
+            --icon-size 128 \
+            --icon "Heimdall.app" 165 205 \
+            --app-drop-link 495 205 \
+            --hide-extension "Heimdall.app" \
+            --no-internet-enable \
+            "$DMG" \
+            "dist/dmg-src/"
+          STATUS=$?
+          set -e
+
+          if [ ! -f "$DMG" ]; then
+            echo "::error::create-dmg exited $STATUS and produced no image"
+            exit 1
+          fi
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::warning::create-dmg exited $STATUS but the image was written; continuing"
+          fi
+
+          # The image must mount and contain the app plus the drop target.
+          MP="$(mktemp -d)"
+          hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MP"
+          ls -la "$MP"
+          if [ ! -d "$MP/Heimdall.app" ]; then
+            hdiutil detach "$MP" || true
+            echo "::error::DMG does not contain Heimdall.app"
+            exit 1
+          fi
+          if [ ! -L "$MP/Applications" ]; then
+            echo "::warning::DMG has no /Applications symlink"
+          fi
+          hdiutil detach "$MP"
+
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SHA-256 checksums
+        id: sums
+        working-directory: dist
+        env:
+          DMG_NAME: ${{ steps.meta.outputs.dmg }}
+        run: |
+          set -euo pipefail
+          shasum -a 256 "$DMG_NAME" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          SHA="$(awk '{print $1}' SHA256SUMS.txt)"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      # Build provenance is this project's stand-in for notarization. It binds
+      # the DMG's digest to this repository, this workflow file and this commit,
+      # signed by GitHub's Sigstore instance. It does not make Gatekeeper happy,
+      # but it does let a careful user prove where the file came from.
+      - name: Attest build provenance for the DMG
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.dmg.outputs.path }}
+
+      - name: Compose release notes
+        env:
+          DMG_NAME: ${{ steps.meta.outputs.dmg }}
+          SHA256: ${{ steps.sums.outputs.sha256 }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cat > dist/RELEASE_NOTES.md <<EOF
+          ## Install
+
+          1. Download **$DMG_NAME** below.
+          2. Open it and drag **Heimdall** onto the **Applications** folder.
+          3. Open your **Applications** folder and double-click **Heimdall**. macOS will refuse to open it. That is expected.
+          4. Open **System Settings** -> **Privacy & Security**, scroll to the bottom, and click **Open Anyway** next to the message about Heimdall.
+          5. Confirm with your password, Touch ID, or Apple Watch.
+
+          Heimdall lives in the menu bar, so after step 5 look for the fan icon at
+          the top of your screen. No window opens on its own.
+
+          You do this once. Later launches open normally.
+
+          The first time you use fan control, Heimdall asks for your admin password
+          to install a small background helper that talks to the fan controller.
+          The README explains what it does and how to remove it.
+
+          ### Why the warning?
+
+          Heimdall has no paid Apple Developer account, so it cannot be notarized by
+          Apple. Full explanation:
+          <https://github.com/$REPO#why-does-macos-warn-about-this-app>
+
+          ## Verify this download
+
+          Checksum:
+
+          \`\`\`
+          $SHA256  $DMG_NAME
+          \`\`\`
+
+          \`\`\`sh
+          shasum -a 256 ~/Downloads/$DMG_NAME
+          \`\`\`
+
+          Build provenance, which proves this DMG was built by GitHub Actions from
+          this repository at this tag rather than assembled by hand:
+
+          \`\`\`sh
+          gh attestation verify ~/Downloads/$DMG_NAME --repo $REPO
+          \`\`\`
+
+          ## Uninstall
+
+          Run \`scripts/uninstall.sh\` from a checkout of this repository. It removes
+          the app, the background helper, and the helper's files.
+          EOF
+          cat dist/RELEASE_NOTES.md
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          DMG_NAME: ${{ steps.meta.outputs.dmg }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; updating notes and re-uploading assets."
+            gh release edit "$TAG" --notes-file dist/RELEASE_NOTES.md
+            gh release upload "$TAG" "dist/$DMG_NAME" dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" \
+              "dist/$DMG_NAME" \
+              dist/SHA256SUMS.txt \
+              --title "Heimdall $VERSION" \
+              --notes-file dist/RELEASE_NOTES.md
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: heimdall-${{ steps.meta.outputs.version }}
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
