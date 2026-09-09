@@ -31,3 +31,7 @@ Package.resolved
 
 # Symlinks
 boreas
+
+# Agent worktrees (Claude Code)
+.claude/worktrees/
+.claude/
