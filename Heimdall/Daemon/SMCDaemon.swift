@@ -1,14 +1,15 @@
 import Foundation
 
 class SMCDaemon {
-    static let cmdPath = "/tmp/heimdall-smc-cmd"
-    static let rspPath = "/tmp/heimdall-smc-rsp"
-    static let readyPath = "/tmp/heimdall-smc-ready"
+    /// Root-owned directory: /tmp is world-writable, so anything placed there can be
+    /// pre-created, symlinked or replaced by an unprivileged process.
+    static let socketDir = "/var/run/heimdall"
+    static let socketPath = "/var/run/heimdall/smc.sock"
     static let logPath = "/var/log/heimdall-daemon.log"
 
     /// Bumped whenever the installed plist must be replaced (paths, arguments, policy).
     /// `isDaemonInstalled()` compares this against the on-disk plist so upgrades reinstall.
-    static let daemonVersion = "2"
+    static let daemonVersion = "3"
 
     static let daemonLabel = "com.heimdall.smchelper"
     static let plistPath = "/Library/LaunchDaemons/com.heimdall.smchelper.plist"
@@ -17,43 +18,149 @@ class SMCDaemon {
 
     static func runPersistent() {
         log("Daemon starting — uid=\(getuid()), euid=\(geteuid()), pid=\(getpid())")
+
+        // The whole peer check below rests on this binary living somewhere only root
+        // can write. If it does not, any local user could replace it and be trusted.
+        guard let selfPath = currentExecutablePath(), isRootOwnedAndNotUserWritable(selfPath) else {
+            log("FATAL: refusing to run — executable is missing or user-writable")
+            exit(1)
+        }
+        log("Authorized client path: \(selfPath)")
+
         let smc = SMCKit.shared
         log("SMC open: \(smc.isOpen)")
 
-        while true {
-            cleanupFIFOs(cmd: cmdPath, rsp: rspPath, ready: readyPath)
-            mkfifo(cmdPath, 0o666)
-            mkfifo(rspPath, 0o666)
-            chmod(cmdPath, 0o666)
-            chmod(rspPath, 0o666)
-            FileManager.default.createFile(atPath: readyPath, contents: nil)
-            log("FIFOs ready, waiting for client...")
-
-            handleSession(cmd: cmdPath, rsp: rspPath, smc: smc)
-
-            log("Client disconnected, waiting for reconnect...")
-            Thread.sleep(forTimeInterval: 0.5)
+        guard let listener = makeListeningSocket() else {
+            log("FATAL: could not create listening socket at \(socketPath)")
+            exit(1)
         }
+        log("Listening on \(socketPath)")
+
+        while true {
+            let client = Darwin.accept(listener, nil, nil)
+            if client < 0 {
+                if errno == EINTR { continue }
+                log("accept failed: errno=\(errno)")
+                Thread.sleep(forTimeInterval: 0.5)
+                continue
+            }
+
+            if let reason = rejectionReason(forPeerOf: client, expecting: selfPath) {
+                log("REJECTED connection: \(reason)")
+                Darwin.close(client)
+                continue
+            }
+
+            log("Client accepted")
+            handleSession(fd: client, smc: smc)
+            Darwin.close(client)
+            log("Client disconnected")
+        }
+    }
+
+    // MARK: - Socket setup
+
+    private static func makeListeningSocket() -> Int32? {
+        // 0755: the directory must be traversable so the client can reach the socket,
+        // but only root may create or replace entries inside it.
+        mkdir(socketDir, 0o755)
+        chmod(socketDir, 0o755)
+        chown(socketDir, 0, 0)
+        unlink(socketPath)
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+
+        var addr = socketAddress(socketPath)
+        let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, size) }
+        }
+        guard bound == 0 else { Darwin.close(fd); return nil }
+
+        // Any local user may connect; authority comes from the peer check, not the mode.
+        chmod(socketPath, 0o666)
+        guard listen(fd, 4) == 0 else { Darwin.close(fd); return nil }
+        return fd
+    }
+
+    static func socketAddress(_ path: String) -> sockaddr_un {
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        let capacity = MemoryLayout.size(ofValue: addr.sun_path)
+        withUnsafeMutablePointer(to: &addr.sun_path) { tuple in
+            tuple.withMemoryRebound(to: CChar.self, capacity: capacity) { dest in
+                let n = min(bytes.count, capacity - 1)
+                for i in 0..<n { dest[i] = CChar(bitPattern: bytes[i]) }
+                dest[n] = 0
+            }
+        }
+        return addr
+    }
+
+    // MARK: - Peer authorization
+
+    /// Returns nil when the peer may proceed, otherwise why it was refused.
+    ///
+    /// The app is distributed unsigned, so there is no Team ID to check. Instead the
+    /// peer must be running the *same* executable this daemon was launched from, and
+    /// that file must be root-owned and not user-writable — a condition an
+    /// unprivileged attacker cannot manufacture.
+    private static func rejectionReason(forPeerOf fd: Int32, expecting expectedPath: String) -> String? {
+        var pid: pid_t = 0
+        var len = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0, pid > 0 else {
+            return "could not determine peer pid"
+        }
+
+        var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let n = proc_pidpath(pid, &buf, UInt32(buf.count))
+        guard n > 0 else { return "could not resolve path of pid \(pid)" }
+        let peerPath = String(cString: buf)
+
+        guard peerPath == expectedPath else {
+            return "pid \(pid) is \(peerPath), expected \(expectedPath)"
+        }
+        // Re-check ownership per connection: the binary may have been swapped since launch.
+        guard isRootOwnedAndNotUserWritable(peerPath) else {
+            return "\(peerPath) is no longer root-owned and write-protected"
+        }
+        return nil
+    }
+
+    private static func isRootOwnedAndNotUserWritable(_ path: String) -> Bool {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return false }
+        guard st.st_uid == 0 else { return false }
+        return (st.st_mode & S_IWGRP) == 0 && (st.st_mode & S_IWOTH) == 0
+    }
+
+    private static func currentExecutablePath() -> String? {
+        var size = UInt32(MAXPATHLEN)
+        var buf = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buf, &size) == 0 else { return nil }
+        var resolved = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard realpath(buf, &resolved) != nil else { return String(cString: buf) }
+        return String(cString: resolved)
     }
 
     // MARK: - Session handling
 
-    private static func handleSession(cmd cmdPath: String, rsp rspPath: String, smc: SMCKit) {
-        let cmdFd = Darwin.open(cmdPath, O_RDONLY)
-        guard cmdFd >= 0 else { log("FATAL: cmd FIFO open failed"); return }
-
-        let rspFd = Darwin.open(rspPath, O_WRONLY)
-        guard rspFd >= 0 else { log("FATAL: rsp FIFO open failed"); Darwin.close(cmdFd); return }
-
-        log("Client connected")
-
+    private static func handleSession(fd: Int32, smc: SMCKit) {
         var buffer = Data()
         var readBuf = [UInt8](repeating: 0, count: 1024)
 
         while true {
-            let n = Darwin.read(cmdFd, &readBuf, readBuf.count)
+            let n = Darwin.read(fd, &readBuf, readBuf.count)
             if n <= 0 { break }
             buffer.append(contentsOf: readBuf[0..<n])
+
+            // Refuse to buffer unbounded garbage from a peer that never sends a newline.
+            if buffer.count > 64 * 1024 {
+                log("Dropping client: oversized command buffer")
+                return
+            }
 
             while let nlRange = buffer.range(of: Data([0x0A])) {
                 let lineData = buffer[buffer.startIndex..<nlRange.lowerBound]
@@ -63,16 +170,12 @@ class SMCDaemon {
                     .trimmingCharacters(in: .whitespacesAndNewlines),
                       !line.isEmpty else { continue }
 
-                let response = processCommand(line, smc: smc)
-                let rspData = (response + "\n").data(using: .utf8)!
-                rspData.withUnsafeBytes { ptr in
-                    _ = Darwin.write(rspFd, ptr.baseAddress!, ptr.count)
-                }
+                let response = processCommand(line, smc: smc) + "\n"
+                guard let out = response.data(using: .utf8) else { continue }
+                let written = out.withUnsafeBytes { Darwin.write(fd, $0.baseAddress!, $0.count) }
+                if written <= 0 { return }
             }
         }
-
-        Darwin.close(cmdFd)
-        Darwin.close(rspFd)
     }
 
     // MARK: - Key policy
@@ -143,7 +246,7 @@ class SMCDaemon {
     // MARK: - Installation
 
     static func isDaemonRunning() -> Bool {
-        FileManager.default.fileExists(atPath: readyPath)
+        FileManager.default.fileExists(atPath: socketPath)
     }
 
     /// True only when the installed plist matches the current daemon version, so a
@@ -206,12 +309,6 @@ class SMCDaemon {
     }
 
     // MARK: - Helpers
-
-    static func cleanupFIFOs(cmd: String, rsp: String, ready: String) {
-        unlink(cmd)
-        unlink(rsp)
-        unlink(ready)
-    }
 
     private static func log(_ msg: String) {
         guard let data = "\(Date()): \(msg)\n".data(using: .utf8) else { return }
