@@ -4,7 +4,11 @@ class SMCDaemon {
     static let cmdPath = "/tmp/heimdall-smc-cmd"
     static let rspPath = "/tmp/heimdall-smc-rsp"
     static let readyPath = "/tmp/heimdall-smc-ready"
-    static let logPath = "/tmp/heimdall-daemon.log"
+    static let logPath = "/var/log/heimdall-daemon.log"
+
+    /// Bumped whenever the installed plist must be replaced (paths, arguments, policy).
+    /// `isDaemonInstalled()` compares this against the on-disk plist so upgrades reinstall.
+    static let daemonVersion = "2"
 
     static let daemonLabel = "com.heimdall.smchelper"
     static let plistPath = "/Library/LaunchDaemons/com.heimdall.smchelper.plist"
@@ -71,6 +75,36 @@ class SMCDaemon {
         Darwin.close(rspFd)
     }
 
+    // MARK: - Key policy
+
+    // The daemon runs as root and will happily write any SMC key it is asked to.
+    // Fan control needs a small, fixed set; everything else is refused so that a
+    // compromised or malicious client cannot reach unrelated SMC state.
+
+    /// SMC keys are always 4 bytes, space padded. The command line is split on
+    /// spaces, so the padded key "FS! " arrives here as "FS!" — re-pad before matching.
+    private static func normalizedKey(_ raw: String) -> String {
+        raw.count >= 4 ? String(raw.prefix(4))
+                       : raw.padding(toLength: 4, withPad: " ", startingAt: 0)
+    }
+
+    /// Per-fan mode/target/minimum, the global force mask, and thermalmonitord's
+    /// force-test toggle. Nothing else is fan control.
+    private static func isWritable(_ key: String) -> Bool {
+        if key == "FS! " || key == "Ftst" { return true }
+        let c = Array(key)
+        guard c.count == 4, c[0] == "F", c[1].isNumber else { return false }
+        return ["Md", "Tg", "Mn"].contains(String(c[2...3]))
+    }
+
+    /// Reads are additionally allowed for the fan values the app displays.
+    private static func isReadable(_ key: String) -> Bool {
+        if isWritable(key) || key == "FNum" { return true }
+        let c = Array(key)
+        guard c.count == 4, c[0] == "F", c[1].isNumber else { return false }
+        return ["Ac", "Mx"].contains(String(c[2...3]))
+    }
+
     // MARK: - Command processing
 
     private static func processCommand(_ line: String, smc: SMCKit) -> String {
@@ -80,21 +114,26 @@ class SMCDaemon {
         switch String(parts[0]) {
         case "WRITE":
             guard parts.count >= 3 else { return "ERR write_args" }
-            let key = String(parts[1])
+            let key = normalizedKey(String(parts[1]))
+            guard isWritable(key) else {
+                log("REFUSED write to non-fan key \(key)")
+                return "ERR key_not_permitted"
+            }
             let hexBytes = parts[2...].compactMap { UInt8($0, radix: 16) }
-            let result = smc.writeKey(key, bytes: hexBytes)
-            return result ? "OK" : "ERR write_failed"
+            guard !hexBytes.isEmpty, hexBytes.count <= 32 else { return "ERR write_args" }
+            return smc.writeKey(key, bytes: hexBytes) ? "OK" : "ERR write_failed"
 
         case "READ":
             guard parts.count >= 2 else { return "ERR read_args" }
-            let key = String(parts[1])
-            guard let val = smc.readKey(key) else { return "ERR read_nil" }
-            let hexBytes = val.bytes.prefix(Int(val.dataSize)).map { String(format: "%02X", $0) }.joined(separator: " ")
-            let dt = val.dataType.trimmingCharacters(in: .whitespaces)
-            if let decoded = smc.decodeValue(val) {
-                return "VAL \(decoded)"
+            let key = normalizedKey(String(parts[1]))
+            guard isReadable(key) else {
+                log("REFUSED read of non-fan key \(key)")
+                return "ERR key_not_permitted"
             }
-            return "RAW \(dt) \(hexBytes)"
+            guard let val = smc.readKey(key) else { return "ERR read_nil" }
+            if let decoded = smc.decodeValue(val) { return "VAL \(decoded)" }
+            let hexBytes = val.bytes.prefix(Int(val.dataSize)).map { String(format: "%02X", $0) }.joined(separator: " ")
+            return "RAW \(val.dataType.trimmingCharacters(in: .whitespaces)) \(hexBytes)"
 
         default:
             return "ERR unknown_cmd"
@@ -107,8 +146,11 @@ class SMCDaemon {
         FileManager.default.fileExists(atPath: readyPath)
     }
 
+    /// True only when the installed plist matches the current daemon version, so a
+    /// stale plist from an older build is treated as "not installed" and gets replaced.
     static func isDaemonInstalled() -> Bool {
-        FileManager.default.fileExists(atPath: plistPath)
+        guard let contents = try? String(contentsOfFile: plistPath, encoding: .utf8) else { return false }
+        return contents.contains("<string>heimdall-daemon-v\(daemonVersion)</string>")
     }
 
     static func installDaemon() -> Bool {
@@ -121,6 +163,8 @@ class SMCDaemon {
 <dict>
     <key>Label</key>
     <string>\(daemonLabel)</string>
+    <key>HeimdallDaemonVersion</key>
+    <string>heimdall-daemon-v\(daemonVersion)</string>
     <key>ProgramArguments</key>
     <array>
         <string>\(execPath)</string>
@@ -170,13 +214,12 @@ class SMCDaemon {
     }
 
     private static func log(_ msg: String) {
-        let line = "\(Date()): \(msg)\n"
-        if let handle = FileHandle(forWritingAtPath: logPath) {
-            handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8) ?? Data())
-            handle.closeFile()
-        } else {
-            FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
-        }
+        guard let data = "\(Date()): \(msg)\n".data(using: .utf8) else { return }
+        // O_NOFOLLOW: refuse to follow a symlink planted at logPath, which would
+        // otherwise turn root's log writes into an arbitrary-file append.
+        let fd = Darwin.open(logPath, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { return }
+        defer { Darwin.close(fd) }
+        _ = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress!, $0.count) }
     }
 }
