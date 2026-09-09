@@ -272,6 +272,46 @@ class SMCKit {
 
     // MARK: - Value Conversion
 
+    /// Layout of an Apple SMC 16-bit fixed-point type such as `sp78` or `fp88`.
+    ///
+    /// The type name itself encodes the format: a `sp`/`fp` prefix (signed / unsigned)
+    /// followed by two hex digits giving the number of integer and fractional bits.
+    /// The decoded value is the raw 16-bit word divided by 2^(fractional bits).
+    struct FixedPointFormat {
+        let isSigned: Bool
+        let fractionalBits: Int
+
+        var divisor: Double { Double(1 << fractionalBits) }
+
+        /// Parses `spXY` / `fpXY`, returning nil for anything else.
+        init?(dataType: String) {
+            let chars = Array(dataType)
+            guard chars.count == 4 else { return nil }
+
+            switch chars[0] {
+            case "s": isSigned = true
+            case "f": isSigned = false
+            default: return nil
+            }
+            guard chars[1] == "p" else { return nil }
+
+            guard let integerBits = chars[2].hexDigitValue,
+                  let fractionBits = chars[3].hexDigitValue else { return nil }
+
+            // Signed types spend one bit on the sign, unsigned types do not.
+            guard integerBits + fractionBits == (isSigned ? 15 : 16) else { return nil }
+
+            fractionalBits = fractionBits
+        }
+
+        /// Decodes a big-endian 16-bit word in this format.
+        func decode(high: UInt8, low: UInt8) -> Double {
+            let raw = (UInt16(high) << 8) | UInt16(low)
+            let magnitude = isSigned ? Double(Int16(bitPattern: raw)) : Double(raw)
+            return magnitude / divisor
+        }
+    }
+
     func decodeValue(_ val: SMCVal) -> Double? {
         let dt = val.dataType.trimmingCharacters(in: .whitespaces)
 
@@ -282,14 +322,10 @@ class SMCKit {
             return Double(value)
         }
 
-        if dt == "sp78" && val.bytes.count >= 2 {
-            let rawValue = (Int16(val.bytes[0]) << 8) | Int16(val.bytes[1])
-            return Double(rawValue) / 256.0
-        }
-
-        if dt == "fpe2" && val.bytes.count >= 2 {
-            let rawValue = (UInt16(val.bytes[0]) << 8) | UInt16(val.bytes[1])
-            return Double(rawValue) / 4.0
+        // All spXY / fpXY fixed-point types share one decoding rule, derived from
+        // the type name, so new variants are handled without adding a branch.
+        if let format = FixedPointFormat(dataType: dt), val.bytes.count >= 2 {
+            return format.decode(high: val.bytes[0], low: val.bytes[1])
         }
 
         if dt == "ui8" && val.bytes.count >= 1 { return Double(val.bytes[0]) }
@@ -303,41 +339,6 @@ class SMCKit {
             let rawValue = UInt32(val.bytes[0]) << 24 | UInt32(val.bytes[1]) << 16 |
                            UInt32(val.bytes[2]) << 8 | UInt32(val.bytes[3])
             return Double(rawValue)
-        }
-
-        if dt == "sp4b" && val.bytes.count >= 2 {
-            let rawValue = (Int16(val.bytes[0]) << 8) | Int16(val.bytes[1])
-            return Double(rawValue) / 2048.0
-        }
-
-        if dt == "sp1e" && val.bytes.count >= 2 {
-            let rawValue = (Int16(val.bytes[0]) << 8) | Int16(val.bytes[1])
-            return Double(rawValue) / 16384.0
-        }
-
-        if dt == "sp3c" && val.bytes.count >= 2 {
-            let rawValue = (Int16(val.bytes[0]) << 8) | Int16(val.bytes[1])
-            return Double(rawValue) / 4096.0
-        }
-
-        if dt == "sp5a" && val.bytes.count >= 2 {
-            let rawValue = (Int16(val.bytes[0]) << 8) | Int16(val.bytes[1])
-            return Double(rawValue) / 1024.0
-        }
-
-        if dt == "sp69" && val.bytes.count >= 2 {
-            let rawValue = (Int16(val.bytes[0]) << 8) | Int16(val.bytes[1])
-            return Double(rawValue) / 512.0
-        }
-
-        if dt == "sp87" && val.bytes.count >= 2 {
-            let rawValue = (Int16(val.bytes[0]) << 8) | Int16(val.bytes[1])
-            return Double(rawValue) / 128.0
-        }
-
-        if dt == "fp88" && val.bytes.count >= 2 {
-            let rawValue = (UInt16(val.bytes[0]) << 8) | UInt16(val.bytes[1])
-            return Double(rawValue) / 256.0
         }
 
         if dt == "si8" && val.bytes.count >= 1 { return Double(Int8(bitPattern: val.bytes[0])) }
