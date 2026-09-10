@@ -119,9 +119,14 @@ private struct DiagnosticsSettings: View {
             Text("Report a hardware problem").font(.headline)
 
             Text("""
-                 If sensors, fans or CPU cores look wrong on your Mac, copy this                  report into a GitHub issue. It lists your CPU cluster layout, GPU                  core count and every SMC key with its raw bytes — the raw bytes are                  what make it possible to reproduce and fix a decoding bug without                  owning your machine.
+                 If sensors, fans or CPU cores look wrong on your Mac, copy this \
+                 report into a GitHub issue. It lists your CPU cluster layout, GPU \
+                 core count and every SMC key with its raw bytes — the raw bytes are \
+                 what make it possible to reproduce and fix a decoding bug without \
+                 owning your machine.
 
-                 It contains no personal data: no file names, no network addresses,                  no account details.
+                 It contains no personal data: no file names, no network addresses, \
+                 no account details.
                  """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
