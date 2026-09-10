@@ -27,57 +27,35 @@ class SensorState {
     var powerReadings: [SensorReading] = []
     var isMonitoring = false
     var isDiscovering = true
-    var historyRange: HistoryRange = .fiveMinutes
+    var historyRange: HistoryRange = .fiveMinutes {
+        didSet {
+            guard oldValue != historyRange else { return }
+            refreshFilteredHistory()
+        }
+    }
     var temperatureHistory = RingBuffer<TemperatureSnapshot>(capacity: 900)
 
-    var averageCPUTemp: Double {
-        let temps = temperatureReadings.filter { $0.key.hasPrefix("TC") || $0.key.hasPrefix("Tc") }
-        guard !temps.isEmpty else { return 0 }
-        return temps.map(\.value).reduce(0, +) / Double(temps.count)
-    }
+    // Aggregates below are derived once per sensor tick (in `apply`) from the
+    // sensor roles classified at read time, instead of re-scanning and
+    // re-prefix-matching the whole reading array on every SwiftUI render.
 
-    var hottestCPUTemp: Double {
-        temperatureReadings.filter { $0.key.hasPrefix("TC") || $0.key.hasPrefix("Tc") }.map(\.value).max() ?? 0
-    }
+    private(set) var averageCPUTemp: Double = 0
+    private(set) var hottestCPUTemp: Double = 0
+    private(set) var averageGPUTemp: Double = 0
+    private(set) var hottestGPUTemp: Double = 0
 
-    var averageGPUTemp: Double {
-        let temps = temperatureReadings.filter { $0.key.hasPrefix("TG") || $0.key.hasPrefix("Tg") }
-        guard !temps.isEmpty else { return 0 }
-        return temps.map(\.value).reduce(0, +) / Double(temps.count)
-    }
+    /// Number of CPU-die temperature sensors currently reporting.
+    private(set) var cpuCoreCount: Int = 0
+    /// Number of GPU-die temperature sensors currently reporting.
+    private(set) var gpuCoreCount: Int = 0
 
-    var hottestGPUTemp: Double {
-        temperatureReadings.filter { $0.key.hasPrefix("TG") || $0.key.hasPrefix("Tg") }.map(\.value).max() ?? 0
-    }
+    private(set) var dashboardCPUTemps: [SensorReading] = []
+    private(set) var dashboardGPUTemps: [SensorReading] = []
+    private(set) var dashboardSystemTemps: [SensorReading] = []
 
-    var cpuCoreCount: Int {
-        temperatureReadings.filter { $0.key.hasPrefix("TC") || $0.key.hasPrefix("Tc") }.count
-    }
-
-    var gpuCoreCount: Int {
-        temperatureReadings.filter { $0.key.hasPrefix("TG") || $0.key.hasPrefix("Tg") }.count
-    }
-
-    var dashboardCPUTemps: [SensorReading] {
-        temperatureReadings.filter { $0.key.hasPrefix("TC") || $0.key.hasPrefix("Tc") }.sorted { $0.key < $1.key }
-    }
-
-    var dashboardGPUTemps: [SensorReading] {
-        let all = temperatureReadings.filter { $0.key.hasPrefix("TG") || $0.key.hasPrefix("Tg") }.sorted { $0.key < $1.key }
-        return Array(all.prefix(8))
-    }
-
-    var dashboardSystemTemps: [SensorReading] {
-        temperatureReadings.filter {
-            $0.key.hasPrefix("TH") || $0.key.hasPrefix("TB") || $0.key.hasPrefix("Ta") || $0.key.hasPrefix("TW")
-        }.sorted { $0.key < $1.key }
-    }
-
-    var filteredHistory: [TemperatureSnapshot] {
-        let all = temperatureHistory.toArray()
-        let cutoff = Date().addingTimeInterval(-historyRange.window)
-        return all.filter { $0.timestamp >= cutoff }
-    }
+    /// Snapshots inside the selected window. Recomputed only when the history
+    /// grows or the range changes — never on a SwiftUI render pass.
+    private(set) var filteredHistory: [TemperatureSnapshot] = []
 
     func apply(_ result: SensorReaderResult, recordHistory: Bool = true) {
         readings = result.all
@@ -85,9 +63,28 @@ class SensorState {
         voltageReadings = result.volt
         currentReadings = result.curr
         powerReadings = result.pow
+
+        // The snapshot keeps missing readings as nil so charts can break the line
+        // across a gap. These aggregates are the UI's "current value" and keep the
+        // established 0-means-no-reading convention, which MetricColor renders gray.
+        averageCPUTemp = result.snapshot.avgCPU ?? 0
+        hottestCPUTemp = result.snapshot.maxCPU ?? 0
+        averageGPUTemp = result.snapshot.avgGPU ?? 0
+        hottestGPUTemp = result.snapshot.maxGPU ?? 0
+        cpuCoreCount = result.cpuTemps.count
+        gpuCoreCount = result.gpuTemps.count
+        dashboardCPUTemps = result.cpuTemps
+        dashboardGPUTemps = result.gpuTemps.count > 8 ? Array(result.gpuTemps.prefix(8)) : result.gpuTemps
+        dashboardSystemTemps = result.systemTemps
+
         isMonitoring = true
         if recordHistory {
             temperatureHistory.append(result.snapshot)
+            refreshFilteredHistory()
         }
+    }
+
+    private func refreshFilteredHistory() {
+        filteredHistory = temperatureHistory.elements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

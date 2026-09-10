@@ -15,10 +15,33 @@ class ProcessReader {
         )
     }
 
+    /// Absolute ceiling for the PID buffer; kern.maxproc is well under this.
+    private static let maxPIDBufferCount = 65_536
+
+    /// Fills `pidBuffer` with the live PIDs, growing it when the kernel fills it
+    /// completely (a full buffer means the list was almost certainly truncated).
+    /// Returns the number of valid entries.
+    private func listPIDs() -> Int {
+        while true {
+            let bufferSize = proc_listpids(
+                UInt32(PROC_ALL_PIDS), 0, &pidBuffer,
+                Int32(MemoryLayout<Int32>.stride * pidBuffer.count)
+            )
+            guard bufferSize > 0 else { return 0 }
+
+            let count = Int(bufferSize) / MemoryLayout<Int32>.stride
+            if count >= pidBuffer.count, pidBuffer.count < Self.maxPIDBufferCount {
+                let grown = min(pidBuffer.count * 2, Self.maxPIDBufferCount)
+                pidBuffer = [Int32](repeating: 0, count: grown)
+                continue
+            }
+            return min(count, pidBuffer.count)
+        }
+    }
+
     private func readAllProcessMetrics() -> [Int32: ProcessTickMetrics] {
-        let bufferSize = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &pidBuffer, Int32(MemoryLayout<Int32>.stride * pidBuffer.count))
-        guard bufferSize > 0 else { return [:] }
-        let count = Int(bufferSize) / MemoryLayout<Int32>.stride
+        let count = listPIDs()
+        guard count > 0 else { return [:] }
 
         var processes: [Int32: ProcessTickMetrics] = [:]
         processes.reserveCapacity(min(count, 256))

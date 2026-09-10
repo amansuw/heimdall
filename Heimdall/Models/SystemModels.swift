@@ -66,6 +66,8 @@ struct LoadAverage: Sendable {
 
 struct GPUUsage: Sendable {
     var modelName: String = "Unknown"
+    /// Number of GPU cores reported by the IORegistry (0 when unknown).
+    var coreCount: Int = 0
     var utilization: Double = 0
     var renderUtilization: Double = 0
     var tilerUtilization: Double = 0
@@ -186,12 +188,55 @@ struct FanInfo: Identifiable, Sendable {
 
 // MARK: - History Snapshots
 
-/// Anything a chart can plot: it carries the wall-clock time of the sample.
-/// Charts plot against these timestamps, never against array index — the
-/// polling cadence is not constant (1s fan-boost / 2s visible / 30s background,
-/// with sensors sampled only every 5th fast tick).
+/// Anything a chart can plot or a ring buffer can window: it carries the
+/// wall-clock time of the sample. Charts plot against these timestamps, never
+/// against array index — the polling cadence is not constant (1s fan-boost /
+/// 2s visible / 30s background, with sensors sampled only every 5th fast tick).
 protocol TimestampedSample {
     var timestamp: Date { get }
+}
+
+extension RingBuffer where Element: TimestampedSample {
+    /// Logical index of the oldest element whose timestamp is >= `cutoff`.
+    /// O(log n), no allocation. Assumes chronological append order.
+    func firstIndex(atOrAfter cutoff: Date) -> Int {
+        var low = 0
+        var high = count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if let element = self[mid], element.timestamp >= cutoff {
+                high = mid
+            } else {
+                low = mid + 1
+            }
+        }
+        return low
+    }
+
+    /// Elements newer than `cutoff`, in chronological order.
+    /// O(log n + k) where k is the number actually returned — elements outside
+    /// the window are never copied.
+    func elements(since cutoff: Date) -> [Element] {
+        guard count > 0 else { return [] }
+        let start = firstIndex(atOrAfter: cutoff)
+        guard start < count else { return [] }
+        var result = [Element]()
+        result.reserveCapacity(count - start)
+        for index in start..<count {
+            if let element = self[index] { result.append(element) }
+        }
+        return result
+    }
+
+    /// Iterates elements newer than `cutoff` without allocating an array.
+    func forEachElement(since cutoff: Date, _ body: (Element) -> Void) {
+        guard count > 0 else { return }
+        let start = firstIndex(atOrAfter: cutoff)
+        guard start < count else { return }
+        for index in start..<count {
+            if let element = self[index] { body(element) }
+        }
+    }
 }
 
 struct CPUSnapshot: Sendable, TimestampedSample {

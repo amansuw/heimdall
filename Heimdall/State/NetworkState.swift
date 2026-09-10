@@ -8,15 +8,18 @@ class NetworkState {
         let _ = processHistory.revision
         return processHistory.topNetwork(window: historyRange.window, limit: 8)
     }
-    var historyRange: HistoryRange = .fiveMinutes
+    var historyRange: HistoryRange = .fiveMinutes {
+        didSet {
+            guard oldValue != historyRange else { return }
+            refreshFilteredHistory()
+        }
+    }
     var history = RingBuffer<NetworkSnapshot>(capacity: 1800)
     var processHistory: ProcessHistory?
 
-    var filteredHistory: [NetworkSnapshot] {
-        let all = history.toArray()
-        let cutoff = Date().addingTimeInterval(-historyRange.window)
-        return all.filter { $0.timestamp >= cutoff }
-    }
+    /// Snapshots inside the selected window. Recomputed only when the history
+    /// grows or the range changes — never on a SwiftUI render pass.
+    private(set) var filteredHistory: [NetworkSnapshot] = []
 
     func apply(_ result: NetworkReaderResult, recordHistory: Bool = true) {
         stats.downloadBytesPerSec = result.dlSpeed
@@ -26,6 +29,11 @@ class NetworkState {
         stats.activeInterface = result.activeIface
         if recordHistory {
             history.append(result.snapshot)
+            refreshFilteredHistory()
         }
+    }
+
+    private func refreshFilteredHistory() {
+        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

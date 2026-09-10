@@ -15,7 +15,12 @@ class CPUState {
             coreCount: max(totalCores, 1)
         )
     }
-    var historyRange: HistoryRange = .fiveMinutes
+    var historyRange: HistoryRange = .fiveMinutes {
+        didSet {
+            guard oldValue != historyRange else { return }
+            refreshFilteredHistory()
+        }
+    }
     var history = RingBuffer<CPUSnapshot>(capacity: 1800)
     var processHistory: ProcessHistory?
 
@@ -35,11 +40,9 @@ class CPUState {
         UptimeFormatter.format(uptime)
     }
 
-    var filteredHistory: [CPUSnapshot] {
-        let all = history.toArray()
-        let cutoff = Date().addingTimeInterval(-historyRange.window)
-        return all.filter { $0.timestamp >= cutoff }
-    }
+    /// Snapshots inside the selected window. Recomputed only when the history
+    /// grows or the range changes — never on a SwiftUI render pass.
+    private(set) var filteredHistory: [CPUSnapshot] = []
 
     func apply(_ result: CPUReaderResult, recordHistory: Bool = true) {
         usage = result.usage
@@ -48,11 +51,16 @@ class CPUState {
         frequency = result.freq
         if recordHistory {
             history.append(result.snapshot)
+            refreshFilteredHistory()
         }
     }
 
     func applyTopology(total: Int, clusters: [CPUCluster]) {
         totalCores = total
         self.clusters = clusters
+    }
+
+    private func refreshFilteredHistory() {
+        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

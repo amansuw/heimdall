@@ -9,15 +9,18 @@ class DiskState {
         let _ = processHistory.revision
         return processHistory.topDiskIO(window: historyRange.window, limit: 8)
     }
-    var historyRange: HistoryRange = .fiveMinutes
+    var historyRange: HistoryRange = .fiveMinutes {
+        didSet {
+            guard oldValue != historyRange else { return }
+            refreshFilteredHistory()
+        }
+    }
     var ioHistory = RingBuffer<DiskIOSnapshot>(capacity: 1800)
     var processHistory: ProcessHistory?
 
-    var filteredHistory: [DiskIOSnapshot] {
-        let all = ioHistory.toArray()
-        let cutoff = Date().addingTimeInterval(-historyRange.window)
-        return all.filter { $0.timestamp >= cutoff }
-    }
+    /// Snapshots inside the selected window. Recomputed only when the history
+    /// grows or the range changes — never on a SwiftUI render pass.
+    private(set) var filteredHistory: [DiskIOSnapshot] = []
 
     func applySpace(_ result: DiskSpaceResult) {
         disks = result.disks
@@ -27,6 +30,11 @@ class DiskState {
         io = result.io
         if recordHistory {
             ioHistory.append(result.snapshot)
+            refreshFilteredHistory()
         }
+    }
+
+    private func refreshFilteredHistory() {
+        filteredHistory = ioHistory.elements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }
