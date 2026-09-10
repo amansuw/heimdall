@@ -52,9 +52,20 @@ class SMCDaemon {
             }
 
             log("Client accepted")
+            sessionForcedFans = false
             handleSession(fd: client, smc: smc)
             Darwin.close(client)
             log("Client disconnected")
+
+            // The app normally hands the fans back on quit. If it crashed or was
+            // killed it never got the chance, and the SMC would keep running them at
+            // whatever was last written — including a speed far below what the
+            // machine needs. Nothing else will clean this up, so the daemon does.
+            if sessionForcedFans {
+                log("Client left fans under manual control — restoring automatic")
+                restoreAutomaticFans(smc: smc)
+                sessionForcedFans = false
+            }
         }
     }
 
@@ -178,6 +189,23 @@ class SMCDaemon {
         }
     }
 
+    /// Hands every fan back to the firmware. Deliberately best-effort and quiet:
+    /// this runs after a client has already gone away.
+    ///
+    /// Note this does not restore F<n>Mn. The factory minimum is only known to the
+    /// app, which re-establishes it on next launch from its stored baseline.
+    private static func restoreAutomaticFans(smc: SMCKit) {
+        _ = smc.writeKey("Ftst", bytes: [0x00])
+
+        let fanCount = smc.getNumberOfFans()
+        for index in 0..<max(fanCount, 0) {
+            _ = smc.setFanMode(fanIndex: index, mode: .automatic)
+        }
+        if let value = smc.readKey("FS! ") {
+            _ = smc.writeKey("FS! ", bytes: [UInt8](repeating: 0, count: Int(value.dataSize)))
+        }
+    }
+
     // MARK: - Key policy
 
     // The daemon runs as root and will happily write any SMC key it is asked to.
@@ -210,6 +238,10 @@ class SMCDaemon {
 
     // MARK: - Command processing
 
+    /// Set when this session wrote anything that takes fans away from firmware
+    /// control, so the daemon knows whether a vanished client left them forced.
+    private static var sessionForcedFans = false
+
     private static func processCommand(_ line: String, smc: SMCKit) -> String {
         let parts = line.split(separator: " ")
         guard !parts.isEmpty else { return "ERR empty" }
@@ -224,6 +256,12 @@ class SMCDaemon {
             }
             let hexBytes = parts[2...].compactMap { UInt8($0, radix: 16) }
             guard !hexBytes.isEmpty, hexBytes.count <= 32 else { return "ERR write_args" }
+
+            // Any non-zero write to these keys means the fans are no longer under
+            // firmware control.
+            if key == "Ftst" || key == "FS! " || key.hasSuffix("Md"), hexBytes.contains(where: { $0 != 0 }) {
+                sessionForcedFans = true
+            }
             return smc.writeKey(key, bytes: hexBytes) ? "OK" : "ERR write_failed"
 
         case "READ":
@@ -256,8 +294,23 @@ class SMCDaemon {
         return contents.contains("<string>heimdall-daemon-v\(daemonVersion)</string>")
     }
 
+    /// The peer check only means something if the app binary cannot be replaced by
+    /// an unprivileged process. Installing from ~/Downloads would have launchd run a
+    /// user-writable binary as root at every boot.
+    static func isInstallLocationAcceptable() -> Bool {
+        guard let execPath = Bundle.main.executablePath else { return false }
+        var st = stat()
+        guard lstat(execPath, &st) == 0 else { return false }
+        return st.st_uid == 0 && (st.st_mode & S_IWGRP) == 0 && (st.st_mode & S_IWOTH) == 0
+    }
+
     static func installDaemon() -> Bool {
         guard let execPath = Bundle.main.executablePath else { return false }
+
+        guard isInstallLocationAcceptable() else {
+            log("Refusing to install: \(execPath) is user-writable. Move Heimdall to /Applications first.")
+            return false
+        }
 
         let plistContent = """
 <?xml version="1.0" encoding="UTF-8"?>
