@@ -21,11 +21,11 @@ struct CPUView: View {
                 HStack(spacing: 16) {
                     GaugeCard(title: "Total", percent: cpu.usage.total,
                               subtitle: String(format: "%.1f%%", cpu.usage.total),
-                              icon: "cpu", color: usageColor(cpu.usage.total))
+                              icon: "cpu", color: MetricColor.usage(cpu.usage.total))
                     ForEach(cpu.usage.clusters) { cluster in
                         GaugeCard(title: cluster.name, percent: cluster.usage,
                                   subtitle: String(format: "%.1f%%", cluster.usage),
-                                  icon: clusterIcon(cluster), color: usageColor(cluster.usage))
+                                  icon: clusterIcon(cluster), color: MetricColor.usage(cluster.usage))
                     }
                 }
                 .padding(.horizontal)
@@ -141,13 +141,6 @@ struct CPUView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func usageColor(_ v: Double) -> Color {
-        if v <= 20 { return .blue }
-        if v <= 40 { return .green }
-        if v <= 60 { return .yellow }
-        if v <= 80 { return .orange }
-        return .red
-    }
 
     /// Cluster colours/icons are assigned by position, so a third cluster type
     /// renders sensibly without needing to know what it is.

@@ -147,7 +147,10 @@ class MonitorCoordinator {
         if let until = boostedPollingUntil, until > Date() {
             return 1.0
         }
-        return isUIActive ? 2.0 : 30.0
+        if isUIActive { return 2.0 }
+        // A menu bar readout that only moves every 30s reads as broken, so opting
+        // into one trades a little idle power for a usable refresh rate.
+        return AppSettings.shared.menuBarDisplay == .iconOnly ? 30.0 : 10.0
     }
 
     /// UI open: 10s (processes/nettop). Menu-bar only: 60s (battery only, no nettop).

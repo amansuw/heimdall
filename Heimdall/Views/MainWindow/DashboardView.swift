@@ -32,13 +32,13 @@ struct DashboardView: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     GaugeCard(title: "CPU", percent: cpu.usage.total,
                               subtitle: String(format: "%.0f%% User · %.0f%% Sys", cpu.usage.user, cpu.usage.system),
-                              icon: "cpu", color: gaugeColor(cpu.usage.total))
+                              icon: "cpu", color: MetricColor.usage(cpu.usage.total))
                     GaugeCard(title: "GPU", percent: gpu.usage.utilization,
                               subtitle: gpu.usage.modelName,
-                              icon: "square.3.layers.3d.top.filled", color: gaugeColor(gpu.usage.utilization))
+                              icon: "square.3.layers.3d.top.filled", color: MetricColor.usage(gpu.usage.utilization))
                     GaugeCard(title: "RAM", percent: ram.memory.usagePercent,
                               subtitle: "\(ByteFormatter.format(ram.memory.used)) / \(ByteFormatter.format(ram.memory.total))",
-                              icon: "memorychip", color: ramColor(ram.memory.usagePercent))
+                              icon: "memorychip", color: MetricColor.usage(ram.memory.usagePercent))
                 }
                 .padding(.horizontal)
 
@@ -50,7 +50,7 @@ struct DashboardView: View {
                              icon: "arrow.up.circle.fill", color: .green)
                     if let d = disk.disks.first {
                         StatCard(title: "Disk", value: String(format: "%.0f%% used", d.usagePercent),
-                                 icon: "internaldrive", color: gaugeColor(d.usagePercent))
+                                 icon: "internaldrive", color: MetricColor.usage(d.usagePercent))
                     } else {
                         StatCard(title: "Disk", value: "N/A", icon: "internaldrive", color: .gray)
                     }
@@ -72,13 +72,13 @@ struct DashboardView: View {
                 // Temperature cards
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
                     StatCard(title: "Avg CPU (\(sensors.cpuCoreCount))", value: TempFormatter.format(sensors.averageCPUTemp),
-                             icon: "cpu", color: tempColor(sensors.averageCPUTemp))
+                             icon: "cpu", color: MetricColor.temperature(sensors.averageCPUTemp))
                     StatCard(title: "Peak CPU", value: TempFormatter.format(sensors.hottestCPUTemp),
-                             icon: "flame", color: tempColor(sensors.hottestCPUTemp))
+                             icon: "flame", color: MetricColor.temperature(sensors.hottestCPUTemp))
                     StatCard(title: "Avg GPU (\(sensors.gpuCoreCount))", value: TempFormatter.format(sensors.averageGPUTemp),
-                             icon: "square.3.layers.3d.top.filled", color: tempColor(sensors.averageGPUTemp))
+                             icon: "square.3.layers.3d.top.filled", color: MetricColor.temperature(sensors.averageGPUTemp))
                     StatCard(title: "Peak GPU", value: TempFormatter.format(sensors.hottestGPUTemp),
-                             icon: "flame.fill", color: tempColor(sensors.hottestGPUTemp))
+                             icon: "flame.fill", color: MetricColor.temperature(sensors.hottestGPUTemp))
                 }
                 .padding(.horizontal)
 
@@ -186,27 +186,6 @@ struct DashboardView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func gaugeColor(_ v: Double) -> Color {
-        if v <= 20 { return .blue }
-        if v <= 40 { return .green }
-        if v <= 60 { return .yellow }
-        if v <= 80 { return .orange }
-        return .red
-    }
-    private func ramColor(_ v: Double) -> Color {
-        if v <= 20 { return .blue }
-        if v <= 40 { return .green }
-        if v <= 60 { return .yellow }
-        if v <= 80 { return .orange }
-        return .red
-    }
-    private func tempColor(_ t: Double) -> Color {
-        if t <= 0 || t < 35 { return .gray }
-        if t < 56 { return .green }
-        if t < 75 { return .yellow }
-        if t < 90 { return .orange }
-        return .red
-    }
 
     private func dashPresetButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
