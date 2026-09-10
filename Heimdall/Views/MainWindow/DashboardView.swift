@@ -94,8 +94,8 @@ struct DashboardView: View {
                         .init(sensors.filteredHistory, value: { $0.avgGPU }, color: .green, label: "GPU Avg"),
                         .init(sensors.filteredHistory, value: { $0.maxGPU }, color: .green, label: "GPU Peak", dashed: true),
                     ],
-                    yFormatter: { String(format: "%.0f°", $0) },
-                    tooltipFormatter: { String(format: "%.1f°", $0) },
+                    yFormatter: { TempFormatter.axisLabel($0) },
+                    tooltipFormatter: { TempFormatter.tooltipLabel($0) },
                     height: 180
                 ) {
                     if let last = sensors.filteredHistory.last {
@@ -196,7 +196,7 @@ struct DashboardView: View {
     /// A missing reading renders as an em dash rather than a misleading 0.
     private func tempText(_ value: Double?) -> String {
         guard let value else { return "—" }
-        return String(format: "%.0f°", value)
+        return TempFormatter.formatShort(value)
     }
 
     private func dashPresetButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {

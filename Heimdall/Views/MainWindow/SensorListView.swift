@@ -40,7 +40,10 @@ struct SensorListView: View {
 
                 Picker("Category", selection: $selectedCategory) {
                     Text("All").tag(nil as SensorCategory?)
-                    ForEach(SensorCategory.allCases) { cat in
+                    // .fan is excluded: fan keys are no longer polled as sensors
+                    // (RPM comes from FanController), so that filter would always
+                    // be empty.
+                    ForEach(SensorCategory.allCases.filter { $0 != .fan }) { cat in
                         Text(cat.rawValue).tag(cat as SensorCategory?)
                     }
                 }

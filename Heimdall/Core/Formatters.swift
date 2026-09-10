@@ -86,13 +86,28 @@ enum ByteFormatter {
     }
 }
 
+/// Sensors always report Celsius; conversion happens here, at the point of
+/// display, so a single preference switches every readout in the app.
 enum TempFormatter {
+    private static var unit: TemperatureUnit { AppSettings.shared.temperatureUnit }
+
     static func format(_ celsius: Double) -> String {
-        String(format: "%.1f°C", celsius)
+        String(format: "%.1f%@", unit.convert(celsius), unit.suffix)
     }
 
     static func formatShort(_ celsius: Double) -> String {
-        String(format: "%.0f°", celsius)
+        String(format: "%.0f°", unit.convert(celsius))
+    }
+
+    /// Chart axis and tooltip labels. The chart plots Celsius values, but because
+    /// the conversion is linear and monotonic, labelling a Celsius position with
+    /// its Fahrenheit value is still correct — 40 on the axis really is 104 °F.
+    static func axisLabel(_ celsius: Double) -> String {
+        String(format: "%.0f°", unit.convert(celsius))
+    }
+
+    static func tooltipLabel(_ celsius: Double) -> String {
+        String(format: "%.1f%@", unit.convert(celsius), unit.suffix)
     }
 }
 

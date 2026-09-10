@@ -83,7 +83,7 @@ struct SensorReading: Identifiable, Sendable {
 
     var formattedValue: String {
         switch category {
-        case .temperature: return String(format: "%.1f%@", value, category.unit)
+        case .temperature: return TempFormatter.format(value)
         case .voltage:     return String(format: "%.3f%@", value, category.unit)
         case .current:     return String(format: "%.2f%@", value, category.unit)
         case .power:       return String(format: "%.2f%@", value, category.unit)
