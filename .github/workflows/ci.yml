@@ -80,9 +80,10 @@ jobs:
       - name: Run tests if any test targets exist
         run: |
           set -euo pipefail
-          # The project currently has no test target. Rather than hard-code that
-          # fact, ask the project and run tests only when a *Tests target shows
-          # up, so adding one later needs no workflow change.
+          # Ask the project rather than hard-code its targets: tests run whenever
+          # a *Tests target exists (HeimdallTests today). That bundle is hostless —
+          # it compiles the pure sources it covers and never launches the app or
+          # opens the SMC — so it behaves the same on a runner as on a Mac.
           LIST="$(xcodebuild -project Heimdall.xcodeproj -list)"
           echo "$LIST"
           if printf '%s\n' "$LIST" | grep -qiE '^[[:space:]]+.*Tests[[:space:]]*$'; then
