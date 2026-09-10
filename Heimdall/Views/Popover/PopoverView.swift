@@ -89,7 +89,7 @@ struct PopoverView: View {
                         label: profile.name,
                         isActive: profileState.activeProfile?.id == profile.id
                     ) {
-                        activateProfile(profile)
+                        profileState.activate(profile, on: fan)
                     }
                 }
             }
@@ -132,27 +132,6 @@ struct PopoverView: View {
 
 
 
-    private func activateProfile(_ profile: FanProfile) {
-        profileState.setActiveProfile(profile)
-
-        switch profile.mode {
-        case .automatic:
-            fan.controlMode = .automatic
-            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.automatic)
-        case .manual:
-            if let speed = profile.manualSpeedPercentage {
-                fan.manualSpeedPercentage = speed
-                fan.controlMode = .manual
-                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.manual)
-            }
-        case .curve:
-            if let curve = profile.curve {
-                fan.activeCurve = curve
-                fan.controlMode = .curve
-                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
-            }
-        }
-    }
 }
 
 struct MiniStatCard: View {
