@@ -166,8 +166,18 @@ private let kSMCCmdGetKeyInfo: UInt8 = 9
 class SMCKit {
     static let shared = SMCKit()
 
+    /// Serialises every use of the driver connection and the caches below.
+    ///
+    /// This is a process-wide singleton reached from at least three queues — the
+    /// monitor's fast queue (sensor sampling), the fan helper queue, and the main
+    /// thread (fan discovery, quit). `keyInfoCache` is a Dictionary, so concurrent
+    /// mutation is not merely a stale read: it can corrupt the hash table and
+    /// crash. Recursive because the public methods call one another.
+    private let lock = NSRecursiveLock()
+
     private var connection: io_connect_t = 0
-    private(set) var isOpen = false
+    private var _isOpen = false
+    var isOpen: Bool { lock.withLock { _isOpen } }
 
     private var keyInfoCache: [UInt32: SMCKeyData.KeyInfo] = [:]
 
@@ -183,7 +193,10 @@ class SMCKit {
 
     @discardableResult
     func open() -> Bool {
-        guard !isOpen else { return true }
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !_isOpen else { return true }
 
         let matchingDictionary: CFMutableDictionary = IOServiceMatching("AppleSMC")
         var iterator: io_iterator_t = 0
@@ -199,16 +212,19 @@ class SMCKit {
         IOObjectRelease(device)
 
         if result == kIOReturnSuccess {
-            isOpen = true
+            _isOpen = true
             return true
         }
         return false
     }
 
     func close() {
-        guard isOpen else { return }
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard _isOpen else { return }
         IOServiceClose(connection)
-        isOpen = false
+        _isOpen = false
     }
 
     // MARK: - Key Operations
@@ -291,7 +307,7 @@ class SMCKit {
     }
 
     private func callSMC(command: UInt8, inputData: inout SMCKeyData) -> SMCKeyData? {
-        guard isOpen else { return nil }
+        guard _isOpen else { return nil }
 
         if !selectorProbed { probeSelector() }
 
@@ -310,6 +326,9 @@ class SMCKit {
     }
 
     func readKey(_ key: String) -> SMCVal? {
+        lock.lock()
+        defer { lock.unlock() }
+
         let keyInt = stringToUInt32(key)
 
         let info: SMCKeyData.KeyInfo
@@ -337,6 +356,9 @@ class SMCKit {
     }
 
     func writeKey(_ key: String, bytes: [UInt8]) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
         var inputData = SMCKeyData()
         inputData.key = stringToUInt32(key)
 
@@ -563,6 +585,9 @@ class SMCKit {
     }
 
     func getKeyAtIndex(_ index: Int) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+
         var inputData = SMCKeyData()
         inputData.data32 = UInt32(index)
         guard let result = callSMC(command: kSMCCmdGetKeyFromIndex, inputData: &inputData) else { return nil }
