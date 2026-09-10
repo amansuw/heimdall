@@ -60,7 +60,9 @@ private let kSMCCmdGetKeyInfo: UInt8 = 9
 
 // MARK: - SMCKit
 
-class SMCKit {
+/// Safe to share across queues: every use of the driver connection and the caches
+/// goes through `lock`.
+final class SMCKit: @unchecked Sendable {
     static let shared = SMCKit()
 
     /// Serialises every use of the driver connection and the caches below.

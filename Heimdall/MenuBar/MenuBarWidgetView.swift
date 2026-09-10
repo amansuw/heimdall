@@ -2,6 +2,7 @@ import AppKit
 
 /// Menu bar fan glyph, optionally with a live readout beside it.
 /// Colour tracks average CPU temperature; no animation.
+@MainActor
 final class MenuBarFanIcon {
     private weak var button: NSStatusBarButton?
     private var baseSymbol: NSImage?

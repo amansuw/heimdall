@@ -25,7 +25,8 @@ struct HeimdallApp: App {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
     // @Observable state objects
     let cpuState = CPUState()
     let gpuState = GPUState()
@@ -39,8 +40,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let processHistory = ProcessHistory()
 
     // Coordinator & controllers
-    private let coordinator = MonitorCoordinator()
     private let fanController = FanController()
+    private lazy var coordinator = MonitorCoordinator(fanController: fanController)
     private let statusBarController = StatusBarController()
     private var menuBarDisplayTimer: DispatchSourceTimer?
     private var windowVisibilityObservers: [Any] = []
@@ -65,6 +66,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupCoordinator()
         setupStatusBar()
         setupWindowVisibilityTracking()
+        // Inventory first: both run on the fan controller's queue, and reconnecting can
+        // spend several seconds waiting for a helper that is slow to start.
+        fanController.discoverFans()
         fanController.restoreWriteAccessSilently()
 
         // Show the dashboard the first time Heimdall is ever run, so a new user
@@ -74,10 +78,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             showMainWindow()
         }
 
-        // Discover fans on background queue
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            self?.fanController.discoverFans()
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -149,8 +149,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.networkState = networkState
         coordinator.batteryState = batteryState
         coordinator.sensorState = sensorState
-        coordinator.fanState = fanState
-        coordinator.fanController = fanController
         coordinator.processHistory = processHistory
 
         cpuState.processHistory = processHistory
@@ -194,7 +192,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let displayTimer = DispatchSource.makeTimerSource(queue: .main)
         displayTimer.schedule(deadline: .now(), repeating: 5.0, leeway: .seconds(1))
         displayTimer.setEventHandler { [weak self] in
-            self?.statusBarController.updateWidget()
+            // The timer fires on the main queue.
+            MainActor.assumeIsolated { self?.statusBarController.updateWidget() }
         }
         displayTimer.resume()
         menuBarDisplayTimer = displayTimer
@@ -203,8 +202,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupWindowVisibilityTracking() {
         let center = NotificationCenter.default
 
-        let handler: (Notification) -> Void = { [weak self] _ in
-            DispatchQueue.main.async { self?.refreshMainWindowVisibility() }
+        let handler: @Sendable (Notification) -> Void = { [weak self] _ in
+            guard let self else { return }
+            // Deferred a turn so a closing window has actually gone before it is counted.
+            DispatchQueue.main.async { self.refreshMainWindowVisibility() }
         }
 
         for name in [

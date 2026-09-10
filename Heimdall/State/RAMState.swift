@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 class RAMState {
     var memory = MemoryBreakdown()

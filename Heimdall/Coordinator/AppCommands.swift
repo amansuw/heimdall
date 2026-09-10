@@ -8,6 +8,7 @@ import Observation
 /// posted as an Int instead of a Double was dropped without a sound, and nothing
 /// at a call site said who handled the request. Views now take this object from
 /// the environment and call it.
+@MainActor
 @Observable
 final class AppCommands {
     private let fanController: FanController

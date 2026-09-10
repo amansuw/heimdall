@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-class StatusBarController: NSObject, NSPopoverDelegate {
+@MainActor
+final class StatusBarController: NSObject, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var eventMonitor: Any?

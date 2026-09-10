@@ -224,7 +224,8 @@ class SMCDaemon {
 
     /// Set when this session wrote anything that takes fans away from firmware
     /// control, so the daemon knows whether a vanished client left them forced.
-    private static var sessionForcedFans = false
+    /// Only the single-threaded accept loop touches it.
+    nonisolated(unsafe) private static var sessionForcedFans = false
 
     private static func processCommand(_ line: String, smc: SMCKit) -> String {
         let parts = line.split(separator: " ")

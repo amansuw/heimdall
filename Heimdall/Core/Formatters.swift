@@ -87,7 +87,9 @@ enum ByteFormatter {
 }
 
 /// Sensors always report Celsius; conversion happens here, at the point of
-/// display, so a single preference switches every readout in the app.
+/// display, so a single preference switches every readout in the app. Main-actor
+/// because it reads the observed setting, which is what re-renders views on a change.
+@MainActor
 enum TempFormatter {
     private static var unit: TemperatureUnit { AppSettings.shared.temperatureUnit }
 

@@ -39,6 +39,7 @@ enum TemperatureUnit: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+@MainActor
 @Observable
 final class AppSettings {
     static let shared = AppSettings()
@@ -47,6 +48,12 @@ final class AppSettings {
         static let menuBarDisplay = "heimdall.menuBarDisplay"
         static let temperatureUnit = "heimdall.temperatureUnit"
         static let hasCompletedFirstRun = "heimdall.hasCompletedFirstRun"
+    }
+
+    /// The menu bar preference as last saved, readable off the main actor. The
+    /// monitor's timer queues use it to pick their polling interval.
+    nonisolated static var persistedMenuBarDisplay: MenuBarDisplay {
+        MenuBarDisplay(rawValue: UserDefaults.standard.string(forKey: Key.menuBarDisplay) ?? "") ?? .iconOnly
     }
 
     var menuBarDisplay: MenuBarDisplay {

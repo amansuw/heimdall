@@ -295,6 +295,7 @@ private let dotOutlineColor = Color(nsColor: .controlBackgroundColor)
 
 // MARK: - Hover State
 
+@MainActor
 @Observable
 class ChartHoverState {
     var hoverX: CGFloat? = nil
@@ -314,6 +315,7 @@ private func chartYScale(for pointSets: [[ChartPoint]], yRange: ClosedRange<Doub
     return niceYScale(min: bounds.min, max: bounds.max)
 }
 
+@MainActor
 private func updateHover(_ hoverState: ChartHoverState, x: CGFloat?) {
     var transaction = Transaction()
     transaction.disablesAnimations = true

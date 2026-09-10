@@ -22,7 +22,13 @@ class RAMReader {
             return RAMReaderResult(memory: memory)
         }
 
-        let pageSize = UInt64(vm_kernel_page_size)
+        // The counts are in kernel pages (16 KB on Apple Silicon). host_page_size
+        // reports that size without reading the mutable vm_kernel_page_size global.
+        var kernelPageSize: vm_size_t = 0
+        guard host_page_size(mach_host_self(), &kernelPageSize) == KERN_SUCCESS, kernelPageSize > 0 else {
+            return RAMReaderResult(memory: memory)
+        }
+        let pageSize = UInt64(kernelPageSize)
         let active = UInt64(stats.active_count) * pageSize
         let inactive = UInt64(stats.inactive_count) * pageSize
         let wired = UInt64(stats.wire_count) * pageSize

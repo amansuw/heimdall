@@ -10,13 +10,20 @@ struct NetworkReaderResult: Sendable {
     let snapshot: NetworkSnapshot
 }
 
-class NetworkReader {
+/// Throughput counters are used only on the monitor's fast queue. The public-IP
+/// schedule is also touched from URLSession's callbacks, so it sits behind a lock.
+final class NetworkReader: @unchecked Sendable {
     private var prevBytesIn: UInt64 = 0
     private var prevBytesOut: UInt64 = 0
     private var prevTimestamp: Date?
-    private var isFetchingPublicIP = false
-    private var publicIPNextAllowedFetch: Date = .distantPast
-    private var publicIPConsecutiveFailures = 0
+
+    private struct PublicIPSchedule {
+        var isFetching = false
+        var nextAllowedFetch: Date = .distantPast
+        var consecutiveFailures = 0
+    }
+    private let publicIPLock = NSLock()
+    private var publicIPSchedule = PublicIPSchedule()
 
     func read() -> NetworkReaderResult {
         var totalIn: UInt64 = 0
@@ -107,18 +114,19 @@ class NetworkReader {
         return addresses
     }
 
-    func fetchPublicIP(completion: @escaping (String?, String?) -> Void) {
+    func fetchPublicIP(completion: @escaping @Sendable (String?, String?) -> Void) {
         let now = Date()
-        guard !isFetchingPublicIP, now >= publicIPNextAllowedFetch else {
+        let mayFetch = publicIPLock.withLock { () -> Bool in
+            guard !publicIPSchedule.isFetching, now >= publicIPSchedule.nextAllowedFetch else { return false }
+            publicIPSchedule.isFetching = true
+            return true
+        }
+        guard mayFetch else {
             completion(nil, nil)
             return
         }
 
-        isFetchingPublicIP = true
-
-        let url = URL(string: "https://api.ipify.org")!
-        var ipv4: String?
-        var ipv6: String?
+        let results = PublicIPResults()
         let group = DispatchGroup()
 
         let config = URLSessionConfiguration.ephemeral
@@ -128,32 +136,40 @@ class NetworkReader {
         let session = URLSession(configuration: config)
 
         group.enter()
-        session.dataTask(with: url) { data, _, _ in
+        session.dataTask(with: URL(string: "https://api.ipify.org")!) { data, _, _ in
             defer { group.leave() }
-            if let data = data { ipv4 = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let data {
+                results.setIPv4(String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
         }.resume()
 
         group.enter()
-        let url6 = URL(string: "https://api64.ipify.org")!
-        session.dataTask(with: url6) { data, _, _ in
+        session.dataTask(with: URL(string: "https://api64.ipify.org")!) { data, _, _ in
             defer { group.leave() }
-            if let data = data {
+            if let data {
                 let trimmed = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if trimmed.contains(":") { ipv6 = trimmed }
+                if trimmed.contains(":") { results.setIPv6(trimmed) }
             }
         }.resume()
 
-        group.notify(queue: .global(qos: .utility)) {
+        // Release the session once both requests finish. Every call used to leave one
+        // behind for the life of the app.
+        session.finishTasksAndInvalidate()
+
+        group.notify(queue: .global(qos: .utility)) { [self] in
+            let (ipv4, ipv6) = results.values
             let hadAnyResult = (ipv4?.isEmpty == false) || (ipv6?.isEmpty == false)
-            if hadAnyResult {
-                self.publicIPConsecutiveFailures = 0
-                self.publicIPNextAllowedFetch = Date().addingTimeInterval(55)
-            } else {
-                self.publicIPConsecutiveFailures += 1
-                let backoff = min(pow(2.0, Double(max(0, self.publicIPConsecutiveFailures - 1))) * 60.0, 30 * 60.0)
-                self.publicIPNextAllowedFetch = Date().addingTimeInterval(backoff)
+            publicIPLock.withLock {
+                if hadAnyResult {
+                    publicIPSchedule.consecutiveFailures = 0
+                    publicIPSchedule.nextAllowedFetch = Date().addingTimeInterval(55)
+                } else {
+                    publicIPSchedule.consecutiveFailures += 1
+                    let backoff = min(pow(2.0, Double(max(0, publicIPSchedule.consecutiveFailures - 1))) * 60.0, 30 * 60.0)
+                    publicIPSchedule.nextAllowedFetch = Date().addingTimeInterval(backoff)
+                }
+                publicIPSchedule.isFetching = false
             }
-            self.isFetchingPublicIP = false
             completion(ipv4, ipv6)
         }
     }
@@ -201,4 +217,15 @@ class NetworkReader {
             ptr = addr.pointee.ifa_next
         }
     }
+}
+
+/// Collects the two public-IP lookups, which complete on URLSession's callback queue.
+private final class PublicIPResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ipv4: String?
+    private var ipv6: String?
+
+    func setIPv4(_ value: String?) { lock.withLock { ipv4 = value } }
+    func setIPv6(_ value: String?) { lock.withLock { ipv6 = value } }
+    var values: (String?, String?) { lock.withLock { (ipv4, ipv6) } }
 }
