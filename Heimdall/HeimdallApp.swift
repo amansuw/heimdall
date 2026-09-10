@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let fanState = FanState()
     let profileState = ProfileState()
     let processHistory = ProcessHistory()
+    let powerState = PowerState()
 
     // Coordinator & controllers
     private let fanController = FanController()
@@ -111,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environment(profileState)
             .environment(AppSettings.shared)
             .environment(commands)
+            .environment(powerState)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1050, height: 750),
@@ -150,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.batteryState = batteryState
         coordinator.sensorState = sensorState
         coordinator.processHistory = processHistory
+        coordinator.powerState = powerState
 
         cpuState.processHistory = processHistory
         gpuState.processHistory = processHistory

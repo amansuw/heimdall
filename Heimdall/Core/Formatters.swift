@@ -118,6 +118,13 @@ enum TempFormatter {
     }
 }
 
+enum PowerFormatter {
+    /// Milliwatts below 1 W, where most idle readings sit.
+    static func format(_ watts: Double) -> String {
+        watts < 1 ? String(format: "%.0f mW", watts * 1000) : String(format: "%.2f W", watts)
+    }
+}
+
 enum UptimeFormatter {
     static func format(_ seconds: TimeInterval) -> String {
         let hours = Int(seconds) / 3600

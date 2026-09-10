@@ -18,6 +18,7 @@ final class MonitorCoordinator: @unchecked Sendable {
     @MainActor var batteryState: BatteryState?
     @MainActor var sensorState: SensorState?
     @MainActor var processHistory: ProcessHistory?
+    @MainActor var powerState: PowerState?
 
     // Readers — each used only from the queue that samples it.
     let cpuReader = CPUReader()
@@ -28,6 +29,7 @@ final class MonitorCoordinator: @unchecked Sendable {
     let batteryReader = BatteryReader()
     let sensorReader = SensorReader()
     let processReader = ProcessReader()
+    let powerReader = PowerReader()
 
     let fanController: FanController
 
@@ -222,6 +224,7 @@ final class MonitorCoordinator: @unchecked Sendable {
         let netResult = networkReader.read()
         let diskIOResult = diskReader.readIO()
         let sensorResult = sensorReader.read()
+        let power = powerReader.read()
         fanController.readFanSpeeds()
 
         DispatchQueue.main.async { [weak self] in
@@ -232,6 +235,7 @@ final class MonitorCoordinator: @unchecked Sendable {
             self.networkState?.apply(netResult, recordHistory: true)
             self.diskState?.applyIO(diskIOResult, recordHistory: true)
             if let sensorResult { self.sensorState?.apply(sensorResult, recordHistory: true) }
+            if let power { self.powerState?.apply(power) }
             self.fanController.applyReadings()
         }
     }

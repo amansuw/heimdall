@@ -11,6 +11,7 @@ struct DashboardView: View {
     @Environment(DiskState.self) private var disk
     @Environment(BatteryState.self) private var battery
     @Environment(AppCommands.self) private var commands
+    @Environment(PowerState.self) private var power
 
     var body: some View {
         @Bindable var sensorBinding = sensors
@@ -83,6 +84,18 @@ struct DashboardView: View {
                              icon: "flame.fill", color: MetricColor.temperature(sensors.hottestGPUTemp))
                 }
                 .padding(.horizontal)
+
+                // SoC power from IOReport; hidden where it is unavailable.
+                if let soc = power.latest {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
+                        StatCard(title: "CPU Power", value: powerText(soc.cpu), icon: "cpu", color: .blue)
+                        StatCard(title: "GPU Power", value: powerText(soc.gpu),
+                                 icon: "square.3.layers.3d.top.filled", color: .green)
+                        StatCard(title: "Neural Engine", value: powerText(soc.ane), icon: "brain", color: .purple)
+                        StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "bolt.fill", color: .orange)
+                    }
+                    .padding(.horizontal)
+                }
 
                 // Temperature history chart
                 HistoryChartCard(
@@ -191,6 +204,10 @@ struct DashboardView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
+
+    private func powerText(_ watts: Double?) -> String {
+        watts.map(PowerFormatter.format) ?? "—"
+    }
 
     /// A missing reading renders as an em dash rather than a misleading 0.
     private func tempText(_ value: Double?) -> String {
