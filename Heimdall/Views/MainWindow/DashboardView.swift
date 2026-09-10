@@ -91,7 +91,9 @@ struct DashboardView: View {
                         StatCard(title: "CPU Power", value: powerText(soc.cpu), icon: "cpu", color: .blue)
                         StatCard(title: "GPU Power", value: powerText(soc.gpu),
                                  icon: "square.3.layers.3d.top.filled", color: .green)
-                        StatCard(title: "Neural Engine", value: powerText(soc.ane), icon: "brain", color: .purple)
+                        StatCard(title: "Neural Engine",
+                                 value: soc.neuralEngineIsIdle ? "Idle" : powerText(soc.ane),
+                                 icon: "brain", color: soc.neuralEngineIsIdle ? Color.secondary : .purple)
                         StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "bolt.fill", color: .orange)
                     }
                     .padding(.horizontal)

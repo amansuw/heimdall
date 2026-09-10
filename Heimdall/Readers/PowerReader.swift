@@ -32,6 +32,15 @@ struct SoCPower: Sendable, Equatable {
     /// DRAM, which Apple Silicon reports alongside the SoC rails.
     var memory: Double?
 
+    /// Every Apple Silicon Mac has a Neural Engine, and macOS powers it down when
+    /// nothing is using it, so an idle one draws nothing and reads exactly 0. Showing
+    /// that as "0 mW" looks like the part is missing, so views say "Idle" instead.
+    /// False when there is no reading at all.
+    var neuralEngineIsIdle: Bool {
+        guard let ane else { return false }
+        return ane < 0.0005
+    }
+
     /// CPU + GPU + Neural Engine: what powermetrics calls combined power.
     var combined: Double? {
         let parts = [cpu, gpu, ane].compactMap { $0 }
