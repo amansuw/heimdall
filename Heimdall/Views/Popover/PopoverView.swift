@@ -9,7 +9,6 @@ struct PopoverView: View {
     @Environment(NetworkState.self) private var network
     @Environment(BatteryState.self) private var battery
     @Environment(ProfileState.self) private var profileState
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -102,8 +101,7 @@ struct PopoverView: View {
             // Actions
             VStack(spacing: 0) {
                 Button(action: {
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
+                    NotificationCenter.default.post(name: .openMainWindow, object: nil)
                 }) {
                     HStack {
                         Text("Open Heimdall").font(.system(size: 12))
