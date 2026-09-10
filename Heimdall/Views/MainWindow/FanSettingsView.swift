@@ -1133,28 +1133,12 @@ struct FanSettingsView: View {
     }
 
     private func activateProfile(_ profile: FanProfile) {
-        profileState.setActiveProfile(profile)
-        // Keep selection in sync so the editor shows the active profile.
+        // Shared activation, plus the editor-selection sync only this view needs.
+        profileState.activate(profile, on: fan)
         selectProfile(profile)
-
-        switch profile.mode {
-        case .automatic:
-            fan.controlMode = .automatic
-            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.automatic)
-        case .manual:
-            if let speed = profile.manualSpeedPercentage {
-                fan.manualSpeedPercentage = speed
-                fan.controlMode = .manual
-                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.manual)
-            }
-        case .curve:
-            if let c = profile.curve {
-                curve = c
-                selectedSensorKey = c.sensorKey
-                fan.activeCurve = c
-                fan.controlMode = .curve
-                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
-            }
+        if let c = profile.curve {
+            curve = c
+            selectedSensorKey = c.sensorKey
         }
     }
 

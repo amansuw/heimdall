@@ -1,4 +1,6 @@
 import Foundation
+import IOKit
+import IOKit.ps
 
 // MARK: - Top Process
 
@@ -177,13 +179,33 @@ struct FanInfo: Identifiable, Sendable {
 
     var isIdle: Bool { currentSpeed <= minSpeed }
 
+    /// "Left"/"Right" only describes a two-fan notebook. A Mac mini or Studio has
+    /// differently placed fans and a Mac Pro has more of them, so anywhere else
+    /// this falls back to numbering rather than asserting a layout.
     var name: String {
-        switch index {
-        case 0: return "Left Fan"
-        case 1: return "Right Fan"
-        default: return "Fan \(index + 1)"
-        }
+        guard FanNaming.usesLeftRight, index < 2 else { return "Fan \(index + 1)" }
+        return index == 0 ? "Left Fan" : "Right Fan"
     }
+}
+
+enum FanNaming {
+    /// Only notebooks have a left and a right fan.
+    ///
+    /// Detected by the presence of an internal battery rather than by model
+    /// string: on Apple Silicon hw.model reads "Mac15,6", not "MacBookPro18,3",
+    /// so a name-prefix test silently fails on exactly the machines it is meant
+    /// to match. Cached — the chassis does not change while the process runs.
+    static let usesLeftRight: Bool = {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault,
+                                           IOServiceMatching("AppleSmartBattery"),
+                                           &iterator) == kIOReturnSuccess else { return false }
+        defer { IOObjectRelease(iterator) }
+        let service = IOIteratorNext(iterator)
+        guard service != 0 else { return false }
+        IOObjectRelease(service)
+        return true
+    }()
 }
 
 // MARK: - History Snapshots
