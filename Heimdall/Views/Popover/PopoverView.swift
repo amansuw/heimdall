@@ -9,6 +9,7 @@ struct PopoverView: View {
     @Environment(NetworkState.self) private var network
     @Environment(BatteryState.self) private var battery
     @Environment(ProfileState.self) private var profileState
+    @Environment(AppCommands.self) private var commands
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,7 +90,7 @@ struct PopoverView: View {
                         label: profile.name,
                         isActive: profileState.activeProfile?.id == profile.id
                     ) {
-                        profileState.activate(profile, on: fan)
+                        profileState.activate(profile, on: fan, commands: commands)
                     }
                 }
             }
@@ -101,7 +102,7 @@ struct PopoverView: View {
             // Actions
             VStack(spacing: 0) {
                 Button(action: {
-                    NotificationCenter.default.post(name: .openMainWindow, object: nil)
+                    commands.openMainWindow()
                 }) {
                     HStack {
                         Text("Open Heimdall").font(.system(size: 12))

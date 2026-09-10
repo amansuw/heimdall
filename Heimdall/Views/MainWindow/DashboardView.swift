@@ -10,6 +10,7 @@ struct DashboardView: View {
     @Environment(NetworkState.self) private var network
     @Environment(DiskState.self) private var disk
     @Environment(BatteryState.self) private var battery
+    @Environment(AppCommands.self) private var commands
 
     var body: some View {
         @Bindable var sensorBinding = sensors
@@ -117,19 +118,19 @@ struct DashboardView: View {
                         Text("Fan Quick Presets").font(.headline)
                         HStack(spacing: 8) {
                             dashPresetButton("Auto", isActive: fan.unifiedSpeedLabel == "Auto") {
-                                NotificationCenter.default.post(name: .fanSetAllAuto, object: nil)
+                                commands.setAllFansAuto()
                             }
                             dashPresetButton("25%", isActive: fan.unifiedSpeedLabel == "25%") {
-                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 25.0)
+                                commands.setAllFansSpeed(25)
                             }
                             dashPresetButton("50%", isActive: fan.unifiedSpeedLabel == "50%") {
-                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 50.0)
+                                commands.setAllFansSpeed(50)
                             }
                             dashPresetButton("75%", isActive: fan.unifiedSpeedLabel == "75%") {
-                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 75.0)
+                                commands.setAllFansSpeed(75)
                             }
                             dashPresetButton("Max", isActive: fan.unifiedSpeedLabel == "Max") {
-                                NotificationCenter.default.post(name: .fanSetAllSpeed, object: 100.0)
+                                commands.setAllFansSpeed(100)
                             }
                         }
 
@@ -153,7 +154,7 @@ struct DashboardView: View {
                                 }
 
                                 Button("Activate") {
-                                    profileState.activate(latest, on: fan)
+                                    profileState.activate(latest, on: fan, commands: commands)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.mini)

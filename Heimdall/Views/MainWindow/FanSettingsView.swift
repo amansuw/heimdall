@@ -4,6 +4,7 @@ struct FanSettingsView: View {
     @Environment(FanState.self) private var fan
     @Environment(SensorState.self) private var sensors
     @Environment(ProfileState.self) private var profileState
+    @Environment(AppCommands.self) private var commands
     @State private var showAccessPrompt = false
     @State private var renamingProfile: FanProfile?
     @State private var renameText = ""
@@ -81,7 +82,7 @@ struct FanSettingsView: View {
         .alert("Enable Fan Control", isPresented: $showAccessPrompt) {
             Button("Cancel", role: .cancel) {}
             Button("Continue", role: .destructive) {
-                NotificationCenter.default.post(name: .requestFanAccess, object: nil)
+                commands.requestFanAccess()
             }
         } message: {
             Text("Fan control requires installing the Heimdall helper (one-time admin password) so we can talk to the SMC. Heimdall will momentarily pause while the helper requests access. Continue?")
@@ -288,7 +289,7 @@ struct FanSettingsView: View {
 
         curveApplyWork?.cancel()
         let work = DispatchWorkItem {
-            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
+            commands.setControlMode(.curve)
         }
         curveApplyWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.applyDebounce, execute: work)
@@ -301,7 +302,7 @@ struct FanSettingsView: View {
 
         manualApplyWork?.cancel()
         let work = DispatchWorkItem {
-            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
+            commands.applyManualSpeed()
         }
         manualApplyWork = work
 
@@ -620,7 +621,7 @@ struct FanSettingsView: View {
         case .manual, .curve:
             profileState.setActiveProfile(nil)
         }
-        NotificationCenter.default.post(name: .fanControlModeChanged, object: mode)
+        commands.setControlMode(mode)
     }
 
     private func ensureWriteAccess() -> Bool {
@@ -1070,31 +1071,17 @@ struct FanSettingsView: View {
         profileState.updateProfile(profile)
         hasUnsavedProfileChanges = false
 
-        // Refresh live control only if this profile is already active — do not activate.
+        // Refresh live control only if this profile is already active — do not
+        // activate an inactive one. Re-activating also replaces the stale copy held
+        // in activeProfile with the version just saved.
         if wasActive {
-            switch profile.mode {
-            case .automatic:
-                fan.controlMode = .automatic
-                NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.automatic)
-            case .manual:
-                if let speed = profile.manualSpeedPercentage {
-                    fan.manualSpeedPercentage = speed
-                    fan.controlMode = .manual
-                    NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.manual)
-                }
-            case .curve:
-                if let c = profile.curve {
-                    fan.activeCurve = c
-                    fan.controlMode = .curve
-                    NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
-                }
-            }
+            profileState.activate(profile, on: fan, commands: commands)
         }
     }
 
     private func activateProfile(_ profile: FanProfile) {
         // Shared activation, plus the editor-selection sync only this view needs.
-        profileState.activate(profile, on: fan)
+        profileState.activate(profile, on: fan, commands: commands)
         selectProfile(profile)
         if let c = profile.curve {
             curve = c

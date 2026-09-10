@@ -53,6 +53,7 @@ struct SettingsView: View {
 /// plainly what that is and how to remove it.
 private struct FanHelperSettings: View {
     @Environment(FanState.self) private var fan
+    @Environment(AppCommands.self) private var commands
     @State private var showRemoveConfirmation = false
 
     var body: some View {
@@ -77,7 +78,7 @@ private struct FanHelperSettings: View {
 
             if !fan.hasWriteAccess {
                 Button("Enable Fan Control…") {
-                    NotificationCenter.default.post(name: .requestFanAccess, object: nil)
+                    commands.requestFanAccess()
                 }
                 .buttonStyle(.borderedProminent)
             }
