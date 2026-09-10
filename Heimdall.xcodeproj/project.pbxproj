@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4B763423C82846E59F5D64B9 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29F7647CC104BD48E817BC5 /* AppSettings.swift */; };
+		8FF2AFBD99374CDBAFA03F1F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DF0A43949E40258E62FD16 /* SettingsView.swift */; };
 		9DCD6FF0ECB0460EA4FCBF4E /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F6E72B3DD946ECA4735A0D /* Notifications.swift */; };
 		2DCF251A384040BDA4FF92DF /* ProfileState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA95708947194940A4A072BD /* ProfileState.swift */; };
 		0CBCAD0F04CF4397B4B12113 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68EDE659465642898B8323D8 /* PopoverView.swift */; };
@@ -57,6 +59,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		C29F7647CC104BD48E817BC5 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		E0DF0A43949E40258E62FD16 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		45F6E72B3DD946ECA4735A0D /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		BA95708947194940A4A072BD /* ProfileState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileState.swift; sourceTree = "<group>"; };
 		08D0AF1D57E04032A96101DF /* CPUState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CPUState.swift; sourceTree = "<group>"; };
@@ -124,6 +128,7 @@
 		13A36EF93ADB4FFE82808027 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				842396DD45C5402FA70CE4CF /* Settings */,
 				9CBC686C6CE2468BB164C136 /* MainWindow */,
 				1EAD6953353C46D58CC0A046 /* Popover */,
 				3761C075E29D43D5A5424823 /* Shared */,
@@ -193,6 +198,7 @@
 		68691B205CD1479F891D2B62 /* State */ = {
 			isa = PBXGroup;
 			children = (
+				C29F7647CC104BD48E817BC5 /* AppSettings.swift */,
 				BA95708947194940A4A072BD /* ProfileState.swift */,
 				3D9965CE433949CCB8FDC111 /* BatteryState.swift */,
 				08D0AF1D57E04032A96101DF /* CPUState.swift */,
@@ -289,6 +295,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		842396DD45C5402FA70CE4CF /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				E0DF0A43949E40258E62FD16 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -353,6 +367,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4B763423C82846E59F5D64B9 /* AppSettings.swift in Sources */,
+				8FF2AFBD99374CDBAFA03F1F /* SettingsView.swift in Sources */,
 				9DCD6FF0ECB0460EA4FCBF4E /* Notifications.swift in Sources */,
 				2DCF251A384040BDA4FF92DF /* ProfileState.swift in Sources */,
 				3B8EA578AFE746DC85084C4D /* FanController.swift in Sources */,
