@@ -9,7 +9,7 @@ private let chartBottomPad: CGFloat = 20
 
 /// A single plotted sample. `value == nil` means the sample is MISSING
 /// (sensor unavailable for that tick) and the line is broken across it.
-struct ChartPoint {
+struct ChartPoint: Equatable {
     let time: Date
     let value: Double?
 
@@ -26,7 +26,7 @@ struct ChartPoint {
 /// The wall-clock x-domain a chart is drawn against: `[end - window, end]`.
 /// Every series in a chart shares one domain, so series of differing
 /// lengths / cadences stay aligned in time.
-struct ChartTimeDomain {
+struct ChartTimeDomain: Equatable {
     let start: Date
     let end: Date
 
@@ -49,12 +49,13 @@ struct ChartTimeDomain {
     }
 }
 
-/// Builds the shared domain for a set of series: `[now - window, now]`, so the
-/// series scrolls left as time passes rather than compressing horizontally.
+/// Builds the shared domain for a set of series: `[latest - window, latest]`.
+/// The right edge is the last sample, not wall-clock `Date()`. Hover used to
+/// call `Date()` on its own Canvas while the plot stayed frozen, so the dots
+/// sat to the left of the lines.
 private func makeDomain(_ pointSets: [[ChartPoint]], window: TimeInterval) -> ChartTimeDomain {
-    let latest = pointSets.compactMap { $0.last?.time }.max() ?? .distantPast
-    // `now` is the right edge; guard against a sample stamped in the future.
-    return ChartTimeDomain(end: max(Date(), latest), window: window)
+    let latest = pointSets.compactMap { $0.last?.time }.max() ?? Date()
+    return ChartTimeDomain(end: latest, window: window)
 }
 
 // MARK: - Axis Helpers
@@ -79,7 +80,7 @@ private func niceNumber(_ value: Double, roundToNearest: Bool) -> Double {
     return nice * pow(10, exponent)
 }
 
-struct ChartYScale {
+struct ChartYScale: Equatable {
     let min: Double
     let max: Double
     let step: Double
@@ -299,23 +300,165 @@ class ChartHoverState {
     var hoverX: CGFloat? = nil
 }
 
-// MARK: - Hover Overlay
+// MARK: - Plot / Crosshair (kept on separate Canvases)
 
-private struct ChartHoverOverlay: View {
-    let hoverState: ChartHoverState
+/// Hover used to live inside the same Canvas as the series. On macOS that
+/// makes Observation re-run the draw with an empty capture, so the lines
+/// vanish until the next poll. The plot Canvas never reads hover state.
+
+private func chartYScale(for pointSets: [[ChartPoint]], yRange: ClosedRange<Double>?) -> ChartYScale {
+    if let yRange {
+        return niceYScale(min: yRange.lowerBound, max: yRange.upperBound)
+    }
+    let bounds = valueBounds(pointSets) ?? (0, 100)
+    return niceYScale(min: bounds.min, max: bounds.max)
+}
+
+private func updateHover(_ hoverState: ChartHoverState, x: CGFloat?) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+        hoverState.hoverX = x
+    }
+}
+
+private struct LinePlotCanvas: View {
+    let points: [ChartPoint]
+    let domain: ChartTimeDomain
+    let scale: ChartYScale
+    let window: TimeInterval
+    let color: Color
+    let fillColor: Color?
+    let lineWidth: CGFloat
+    let yFormatter: (Double) -> String
 
     var body: some View {
-        GeometryReader { _ in
-            Color.clear
-                .contentShape(Rectangle())
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active(let loc):
-                        hoverState.hoverX = loc.x
-                    case .ended:
-                        hoverState.hoverX = nil
+        Canvas(rendersAsynchronously: false) { context, size in
+            guard presentCount(points) >= 1 else { return }
+            let plotW = size.width - chartLeftPad
+            let plotH = size.height - chartBottomPad
+            guard plotW > 0, plotH > 0 else { return }
+
+            drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
+            drawXAxisTimes(context, size: size, domain: domain, window: window)
+
+            let segments = chartSegments(points: points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
+            if let fillColor {
+                for segment in segments where segment.count >= 2 {
+                    var fillPath = Path()
+                    fillPath.move(to: CGPoint(x: segment[0].x, y: plotH))
+                    for point in segment { fillPath.addLine(to: point) }
+                    fillPath.addLine(to: CGPoint(x: segment[segment.count - 1].x, y: plotH))
+                    fillPath.closeSubpath()
+                    context.fill(fillPath, with: .color(fillColor))
+                }
+            }
+            strokeSegments(segments, in: context, color: color, style: StrokeStyle(lineWidth: lineWidth))
+        }
+    }
+}
+
+private struct LineCrosshairCanvas: View {
+    let points: [ChartPoint]
+    let domain: ChartTimeDomain
+    let scale: ChartYScale
+    let color: Color
+    let hoverX: CGFloat
+
+    var body: some View {
+        Canvas(rendersAsynchronously: false) { context, size in
+            let plotW = size.width - chartLeftPad
+            let plotH = size.height - chartBottomPad
+            guard plotW > 0, plotH > 0, hoverX >= chartLeftPad, hoverX <= size.width else { return }
+            let hoverTime = domain.time(atX: hoverX, plotW: plotW)
+            guard let idx = nearestIndex(in: points, to: hoverTime), let val = points[idx].value else { return }
+            let snapX = domain.x(for: points[idx].time, plotW: plotW)
+            let frac = (val - scale.min) / scale.range
+            let snapY = plotH - CGFloat(min(max(frac, 0), 1)) * plotH
+
+            var vLine = Path()
+            vLine.move(to: CGPoint(x: snapX, y: 0))
+            vLine.addLine(to: CGPoint(x: snapX, y: plotH))
+            context.stroke(vLine, with: .color(crosshairColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+
+            let dot = Path(ellipseIn: CGRect(x: snapX - 4, y: snapY - 4, width: 8, height: 8))
+            context.fill(dot, with: .color(color))
+            context.stroke(dot, with: .color(dotOutlineColor), lineWidth: 1.5)
+        }
+    }
+}
+
+private struct MultiLinePlotCanvas: View {
+    let series: [CanvasMultiLineChart.Series]
+    let domain: ChartTimeDomain
+    let scale: ChartYScale
+    let window: TimeInterval
+    let yFormatter: (Double) -> String
+
+    var body: some View {
+        let pointSets = series.map(\.points)
+        Canvas(rendersAsynchronously: false) { context, size in
+            guard pointSets.contains(where: { presentCount($0) >= 1 }) else { return }
+            let plotW = size.width - chartLeftPad
+            let plotH = size.height - chartBottomPad
+            guard plotW > 0, plotH > 0 else { return }
+
+            drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
+            drawXAxisTimes(context, size: size, domain: domain, window: window)
+
+            for s in series {
+                let segments = chartSegments(points: s.points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
+                let style: StrokeStyle = s.dashed
+                    ? StrokeStyle(lineWidth: 1.5, dash: [4, 3])
+                    : StrokeStyle(lineWidth: 1.5)
+                if let fill = s.fillColor {
+                    for segment in segments where segment.count >= 2 {
+                        var area = Path()
+                        area.move(to: CGPoint(x: segment[0].x, y: plotH))
+                        for point in segment { area.addLine(to: point) }
+                        area.addLine(to: CGPoint(x: segment[segment.count - 1].x, y: plotH))
+                        area.closeSubpath()
+                        context.fill(area, with: .color(fill))
                     }
                 }
+                strokeSegments(segments, in: context, color: s.color, style: style)
+            }
+        }
+    }
+}
+
+private struct MultiLineCrosshairCanvas: View {
+    let series: [CanvasMultiLineChart.Series]
+    let domain: ChartTimeDomain
+    let scale: ChartYScale
+    let hoverX: CGFloat
+
+    var body: some View {
+        let reference = series.max { presentCount($0.points) < presentCount($1.points) }
+        Canvas(rendersAsynchronously: false) { context, size in
+            let plotW = size.width - chartLeftPad
+            let plotH = size.height - chartBottomPad
+            guard plotW > 0, plotH > 0, hoverX >= chartLeftPad, hoverX <= size.width,
+                  let reference else { return }
+            guard let refIdx = nearestIndex(in: reference.points, to: domain.time(atX: hoverX, plotW: plotW)) else { return }
+            let snapTime = reference.points[refIdx].time
+            let snapX = domain.x(for: snapTime, plotW: plotW)
+
+            var vLine = Path()
+            vLine.move(to: CGPoint(x: snapX, y: 0))
+            vLine.addLine(to: CGPoint(x: snapX, y: plotH))
+            context.stroke(vLine, with: .color(crosshairColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+
+            for s in series {
+                guard let idx = nearestIndex(in: s.points, to: snapTime),
+                      let val = s.points[idx].value else { continue }
+                let x = domain.x(for: s.points[idx].time, plotW: plotW)
+                let frac = (val - scale.min) / scale.range
+                let y = plotH - CGFloat(min(max(frac, 0), 1)) * plotH
+                let dot = Path(ellipseIn: CGRect(x: x - 4, y: y - 4, width: 8, height: 8))
+                context.fill(dot, with: .color(s.color))
+                context.stroke(dot, with: .color(dotOutlineColor), lineWidth: 1.5)
+            }
         }
     }
 }
@@ -434,88 +577,58 @@ struct CanvasLineChart: View {
     }
 
     private var domain: ChartTimeDomain { makeDomain([points], window: window) }
-
-    private var scale: ChartYScale {
-        if let yRange {
-            return niceYScale(min: yRange.lowerBound, max: yRange.upperBound)
-        }
-        let bounds = valueBounds([points]) ?? (0, 100)
-        return niceYScale(min: bounds.min, max: bounds.max)
-    }
+    private var scale: ChartYScale { chartYScale(for: [points], yRange: yRange) }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Canvas { context, size in
-                guard presentCount(points) >= 1 else { return }
-                let plotW = size.width - chartLeftPad
-                let plotH = size.height - chartBottomPad
-                guard plotW > 0, plotH > 0 else { return }
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                LinePlotCanvas(
+                    points: points,
+                    domain: domain,
+                    scale: scale,
+                    window: window,
+                    color: color,
+                    fillColor: fillColor,
+                    lineWidth: lineWidth,
+                    yFormatter: yFormatter
+                )
 
-                let domain = self.domain
-                let scale = self.scale
+                if let hx = hoverState.hoverX {
+                    LineCrosshairCanvas(
+                        points: points,
+                        domain: domain,
+                        scale: scale,
+                        color: color,
+                        hoverX: hx
+                    )
+                    .allowsHitTesting(false)
 
-                drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
-                drawXAxisTimes(context, size: size, domain: domain, window: window)
-
-                let segments = chartSegments(points: points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
-
-                if let fillColor {
-                    for segment in segments where segment.count >= 2 {
-                        var fillPath = Path()
-                        fillPath.move(to: CGPoint(x: segment[0].x, y: plotH))
-                        for point in segment { fillPath.addLine(to: point) }
-                        fillPath.addLine(to: CGPoint(x: segment[segment.count - 1].x, y: plotH))
-                        fillPath.closeSubpath()
-                        context.fill(fillPath, with: .color(fillColor))
-                    }
-                }
-
-                strokeSegments(segments, in: context, color: color, style: StrokeStyle(lineWidth: lineWidth))
-
-                // Hover crosshair
-                if let hx = hoverState.hoverX, hx >= chartLeftPad, hx <= size.width {
-                    let hoverTime = domain.time(atX: hx, plotW: plotW)
-                    if let idx = nearestIndex(in: points, to: hoverTime), let val = points[idx].value {
-                        let snapX = domain.x(for: points[idx].time, plotW: plotW)
-                        let frac = (val - scale.min) / scale.range
-                        let snapY = plotH - CGFloat(min(max(frac, 0), 1)) * plotH
-
-                        var vLine = Path()
-                        vLine.move(to: CGPoint(x: snapX, y: 0))
-                        vLine.addLine(to: CGPoint(x: snapX, y: plotH))
-                        context.stroke(vLine, with: .color(crosshairColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-
-                        let dot = Path(ellipseIn: CGRect(x: snapX - 4, y: snapY - 4, width: 8, height: 8))
-                        context.fill(dot, with: .color(color))
-                        context.stroke(dot, with: .color(dotOutlineColor), lineWidth: 1.5)
-                    }
+                    lineTooltip(geo: geo, hoverX: hx)
                 }
             }
-
-            ChartHoverOverlay(hoverState: hoverState)
-
-            if let hx = hoverState.hoverX, hx >= chartLeftPad, presentCount(points) >= 1 {
-                tooltipView
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let loc): updateHover(hoverState, x: loc.x)
+                case .ended: updateHover(hoverState, x: nil)
+                }
             }
         }
     }
 
     @ViewBuilder
-    private var tooltipView: some View {
-        GeometryReader { geo in
-            let plotW = geo.size.width - chartLeftPad
-            let domain = self.domain
-            let hoverTime = domain.time(atX: hoverState.hoverX ?? chartLeftPad, plotW: plotW)
-            if let idx = nearestIndex(in: points, to: hoverTime), let val = points[idx].value {
-                let xPos = domain.x(for: points[idx].time, plotW: plotW)
-                ChartTooltip(
-                    header: clockSecondFormatter.string(from: points[idx].time),
-                    values: [(color, label, tooltipFormatter(val), false)]
-                )
-                .fixedSize()
-                .allowsHitTesting(false)
-                .position(x: min(max(xPos, chartLeftPad + 40), max(geo.size.width - 40, chartLeftPad + 40)), y: 20)
-            }
+    private func lineTooltip(geo: GeometryProxy, hoverX: CGFloat) -> some View {
+        let plotW = geo.size.width - chartLeftPad
+        let hoverTime = domain.time(atX: hoverX, plotW: plotW)
+        if let idx = nearestIndex(in: points, to: hoverTime), let val = points[idx].value {
+            let xPos = domain.x(for: points[idx].time, plotW: plotW)
+            ChartTooltip(
+                header: clockSecondFormatter.string(from: points[idx].time),
+                values: [(color, label, tooltipFormatter(val), false)]
+            )
+            .fixedSize()
+            .allowsHitTesting(false)
+            .position(x: min(max(xPos, chartLeftPad + 40), max(geo.size.width - 40, chartLeftPad + 40)), y: 20)
         }
     }
 }
@@ -525,7 +638,7 @@ struct CanvasLineChart: View {
 /// Multi-series line chart using Canvas. All series share one wall-clock
 /// x-domain, so differing sample counts stay aligned in time.
 struct CanvasMultiLineChart: View {
-    struct Series {
+    struct Series: Equatable {
         let points: [ChartPoint]
         let color: Color
         let label: String
@@ -585,14 +698,7 @@ struct CanvasMultiLineChart: View {
     private var pointSets: [[ChartPoint]] { series.map(\.points) }
 
     private var domain: ChartTimeDomain { makeDomain(pointSets, window: window) }
-
-    private var scale: ChartYScale {
-        if let yRange {
-            return niceYScale(min: yRange.lowerBound, max: yRange.upperBound)
-        }
-        let bounds = valueBounds(pointSets) ?? (0, 100)
-        return niceYScale(min: bounds.min, max: bounds.max)
-    }
+    private var scale: ChartYScale { chartYScale(for: pointSets, yRange: yRange) }
 
     /// Series used to snap the shared crosshair: the one with the most samples.
     private var referenceSeries: Series? {
@@ -600,92 +706,56 @@ struct CanvasMultiLineChart: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Canvas { context, size in
-                guard pointSets.contains(where: { presentCount($0) >= 1 }) else { return }
-                let plotW = size.width - chartLeftPad
-                let plotH = size.height - chartBottomPad
-                guard plotW > 0, plotH > 0 else { return }
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                MultiLinePlotCanvas(
+                    series: series,
+                    domain: domain,
+                    scale: scale,
+                    window: window,
+                    yFormatter: yFormatter
+                )
 
-                let domain = self.domain
-                let scale = self.scale
+                if let hx = hoverState.hoverX {
+                    MultiLineCrosshairCanvas(
+                        series: series,
+                        domain: domain,
+                        scale: scale,
+                        hoverX: hx
+                    )
+                    .allowsHitTesting(false)
 
-                drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
-                drawXAxisTimes(context, size: size, domain: domain, window: window)
-
-                for s in series {
-                    let segments = chartSegments(points: s.points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
-                    let style: StrokeStyle = s.dashed
-                        ? StrokeStyle(lineWidth: 1.5, dash: [4, 3])
-                        : StrokeStyle(lineWidth: 1.5)
-                    if let fill = s.fillColor {
-                        // Close each contiguous run down to the baseline so gaps stay unfilled.
-                        for segment in segments where segment.count >= 2 {
-                            var area = Path()
-                            area.move(to: CGPoint(x: segment[0].x, y: plotH))
-                            for point in segment { area.addLine(to: point) }
-                            area.addLine(to: CGPoint(x: segment[segment.count - 1].x, y: plotH))
-                            area.closeSubpath()
-                            context.fill(area, with: .color(fill))
-                        }
-                    }
-                    strokeSegments(segments, in: context, color: s.color, style: style)
-                }
-
-                // Hover crosshair — one shared time, one dot per series.
-                if let hx = hoverState.hoverX, hx >= chartLeftPad, hx <= size.width,
-                   let reference = referenceSeries,
-                   let refIdx = nearestIndex(in: reference.points, to: domain.time(atX: hx, plotW: plotW)) {
-                    let snapTime = reference.points[refIdx].time
-                    let snapX = domain.x(for: snapTime, plotW: plotW)
-
-                    var vLine = Path()
-                    vLine.move(to: CGPoint(x: snapX, y: 0))
-                    vLine.addLine(to: CGPoint(x: snapX, y: plotH))
-                    context.stroke(vLine, with: .color(crosshairColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-
-                    for s in series {
-                        guard let idx = nearestIndex(in: s.points, to: snapTime),
-                              let val = s.points[idx].value else { continue }
-                        let x = domain.x(for: s.points[idx].time, plotW: plotW)
-                        let frac = (val - scale.min) / scale.range
-                        let y = plotH - CGFloat(min(max(frac, 0), 1)) * plotH
-                        let dot = Path(ellipseIn: CGRect(x: x - 4, y: y - 4, width: 8, height: 8))
-                        context.fill(dot, with: .color(s.color))
-                        context.stroke(dot, with: .color(dotOutlineColor), lineWidth: 1.5)
-                    }
+                    multiTooltip(geo: geo, hoverX: hx)
                 }
             }
-
-            ChartHoverOverlay(hoverState: hoverState)
-
-            if hoverState.hoverX != nil {
-                multiTooltipView
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let loc): updateHover(hoverState, x: loc.x)
+                case .ended: updateHover(hoverState, x: nil)
+                }
             }
         }
     }
 
     @ViewBuilder
-    private var multiTooltipView: some View {
-        GeometryReader { geo in
-            let plotW = geo.size.width - chartLeftPad
-            let domain = self.domain
-            if let reference = referenceSeries,
-               let refIdx = nearestIndex(in: reference.points, to: domain.time(atX: hoverState.hoverX ?? chartLeftPad, plotW: plotW)) {
-                let snapTime = reference.points[refIdx].time
-                let xPos = domain.x(for: snapTime, plotW: plotW)
-                let items: [(Color, String, String, Bool)] = series.compactMap { s in
-                    guard let idx = nearestIndex(in: s.points, to: snapTime),
-                          let val = s.points[idx].value else { return nil }
-                    let lbl = s.label.isEmpty ? "Series" : s.label
-                    return (s.color, lbl, tooltipFormatter(val), s.dashed)
-                }
-                if !items.isEmpty {
-                    ChartTooltip(header: clockSecondFormatter.string(from: snapTime), values: items)
-                        .fixedSize()
-                        .allowsHitTesting(false)
-                        .position(x: min(max(xPos, chartLeftPad + 50), max(geo.size.width - 50, chartLeftPad + 50)), y: 24)
-                }
+    private func multiTooltip(geo: GeometryProxy, hoverX: CGFloat) -> some View {
+        let plotW = geo.size.width - chartLeftPad
+        if let reference = referenceSeries,
+           let refIdx = nearestIndex(in: reference.points, to: domain.time(atX: hoverX, plotW: plotW)) {
+            let snapTime = reference.points[refIdx].time
+            let xPos = domain.x(for: snapTime, plotW: plotW)
+            let items: [(Color, String, String, Bool)] = series.compactMap { s in
+                guard let idx = nearestIndex(in: s.points, to: snapTime),
+                      let val = s.points[idx].value else { return nil }
+                let lbl = s.label.isEmpty ? "Series" : s.label
+                return (s.color, lbl, tooltipFormatter(val), s.dashed)
+            }
+            if !items.isEmpty {
+                ChartTooltip(header: clockSecondFormatter.string(from: snapTime), values: items)
+                    .fixedSize()
+                    .allowsHitTesting(false)
+                    .position(x: min(max(xPos, chartLeftPad + 50), max(geo.size.width - 50, chartLeftPad + 50)), y: 24)
             }
         }
     }
