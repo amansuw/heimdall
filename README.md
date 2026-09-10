@@ -309,7 +309,7 @@ after a partial manual cleanup.
 Explore each module below for a closer look at Heimdall's monitoring and control surfaces.
 
 ### Dashboard
-System overview with CPU/GPU temperature cards, CPU/GPU/Neural Engine power, selectable temperature history, fan status, and quick fan presets.
+System overview with CPU/GPU temperature cards and history, CPU/GPU/Neural Engine power and power history, fan status, and quick fan presets.
 ![Dashboard](images/dashboard.png)
 
 ### CPU
@@ -317,7 +317,7 @@ P/E-core usage gauges, per-core bars, usage history with selectable time range (
 ![CPU](images/cpu.png)
 
 ### GPU
-GPU utilization gauge, render/tiler split, usage history, CPU/GPU/Neural Engine power history, device stats, and top GPU processes over the selected time range.
+GPU utilization gauge, render/tiler split, usage history, GPU power, device stats, and top GPU processes over the selected time range.
 ![GPU](images/gpu.png)
 
 ### Memory
