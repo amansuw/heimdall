@@ -135,51 +135,54 @@ class FanController {
 
     func requestAdminAccess() {
         guard !(fanState?.isRequestingAccess ?? true) else { return }
-        DispatchQueue.main.async { self.fanState?.isRequestingAccess = true }
+        DispatchQueue.main.async {
+            self.fanState?.isRequestingAccess = true
+            self.fanState?.accessError = nil
+        }
 
         helperQueue.async { [weak self] in
             guard let self else { return }
 
             self.closePersistentFDs()
 
-            if SMCDaemon.isDaemonRunning() {
-                if self.connectToDaemon() {
-                    self.onDaemonConnected()
-                    return
-                }
-            }
-
-            if SMCDaemon.isDaemonInstalled() {
-                let deadline = Date().addingTimeInterval(10)
-                while Date() < deadline {
-                    if SMCDaemon.isDaemonRunning() {
-                        if self.connectToDaemon() {
-                            self.onDaemonConnected()
-                            return
-                        }
-                    }
-                    Thread.sleep(forTimeInterval: 0.5)
-                }
-            }
-
-            let installed = SMCDaemon.installDaemon()
-            guard installed else {
-                DispatchQueue.main.async { self.fanState?.isRequestingAccess = false }
+            // Only a helper installed from this exact build will admit this app, so an
+            // installed one is worth waiting for; any other gets replaced.
+            if SMCDaemon.isDaemonInstalled(), self.waitForDaemon(upTo: 10) {
+                self.onDaemonConnected()
                 return
             }
 
-            let deadline = Date().addingTimeInterval(15)
-            while Date() < deadline {
-                if SMCDaemon.isDaemonRunning() {
-                    if self.connectToDaemon() {
-                        self.onDaemonConnected()
-                        return
-                    }
+            switch SMCDaemon.installDaemon() {
+            case .installed:
+                if self.waitForDaemon(upTo: 15) {
+                    self.onDaemonConnected()
+                } else {
+                    self.finishAccessRequest(error: "The helper was installed but did not start. Its log is at \(SMCDaemon.logPath).")
                 }
-                Thread.sleep(forTimeInterval: 0.5)
+            case .cancelled:
+                self.finishAccessRequest(error: nil)
+            case .failed(let message):
+                self.finishAccessRequest(error: message)
             }
+        }
+    }
 
-            DispatchQueue.main.async { self.fanState?.isRequestingAccess = false }
+    /// Polls until the helper's socket exists and the helper admits this app.
+    private func waitForDaemon(upTo timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if SMCDaemon.isDaemonRunning(), connectToDaemon() { return true }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return false
+    }
+
+    /// Ends a request that did not connect. Failing used to be silent: the button
+    /// simply stopped spinning.
+    private func finishAccessRequest(error: String?) {
+        DispatchQueue.main.async {
+            self.fanState?.isRequestingAccess = false
+            self.fanState?.accessError = error
         }
     }
 
@@ -197,6 +200,14 @@ class FanController {
         sockFd = fd
         helperRunning = true
         rspBuffer = Data()
+
+        // connect() succeeds even when the helper is about to refuse this app and close
+        // the socket, so only a PONG from this helper version counts as connected.
+        guard sendCommand("PING", timeout: 2) == "PONG \(HelperInstaller.versionTag)" else {
+            helperRunning = false
+            closePersistentFDs()
+            return false
+        }
         return true
     }
 
@@ -210,6 +221,9 @@ class FanController {
         DispatchQueue.main.async { [weak self] in
             self?.fanState?.hasWriteAccess = allOk
             self?.fanState?.isRequestingAccess = false
+            self?.fanState?.accessError = allOk
+                ? nil
+                : "The helper is running but could not change the fans. Its log is at \(SMCDaemon.logPath)."
         }
     }
 
@@ -221,18 +235,10 @@ class FanController {
         if helperRunning && sockFd >= 0 { return true }
 
         closePersistentFDs()
-        let deadline = Date().addingTimeInterval(timeout)
-
-        while Date() < deadline {
-            if SMCDaemon.isDaemonRunning() {
-                if connectToDaemon() {
-                    return true
-                }
-            }
-            Thread.sleep(forTimeInterval: 0.25)
-        }
-
-        return false
+        // A helper from another build — after an update, say — would refuse this app,
+        // so don't spend the launch waiting on it. Enabling fan control reinstalls it.
+        guard SMCDaemon.isDaemonInstalled() else { return false }
+        return waitForDaemon(upTo: timeout)
     }
 
     /// Blocking teardown for applicationWillTerminate.

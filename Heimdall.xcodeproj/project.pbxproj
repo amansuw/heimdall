@@ -73,6 +73,12 @@
 		3A9626F60B37408E83969954 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29F7647CC104BD48E817BC5 /* AppSettings.swift */; };
 		341D9AEBB65848CEA8A7756A /* SystemModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 613895412A4B49C187E8B018 /* SystemModels.swift */; };
 		A49FE2B26FE74D7DA95247B8 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FAFFBE03FDAF455B886D2AC4 /* IOKit.framework */; };
+		C32C9E9141E34FA99BCDD196 /* CodeIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC5B3BDF9BCA4BB69E84AEA2 /* CodeIdentity.swift */; };
+		8039F25E03BA48EAA130352E /* CodeIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC5B3BDF9BCA4BB69E84AEA2 /* CodeIdentity.swift */; };
+		6CD62386C86B460488762241 /* HelperInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = F29A2105CEB74854BB375B8A /* HelperInstaller.swift */; };
+		6CB0ECF0B8D84383B3374B47 /* HelperInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = F29A2105CEB74854BB375B8A /* HelperInstaller.swift */; };
+		F3D46EA178574214873B85EA /* CodeIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2067D7549FE4BE596405C19 /* CodeIdentityTests.swift */; };
+		94B4BEF704174230AB3D1301 /* HelperInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E258F986F340BEB6E6BFC7 /* HelperInstallerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -139,6 +145,10 @@
 		3930C84E48F441B989948700 /* FanCurvePlaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanCurvePlaneTests.swift; sourceTree = "<group>"; };
 		670ABE61A4AC4BA5AF42057A /* TemperatureUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemperatureUnitTests.swift; sourceTree = "<group>"; };
 		EBD5422A01954AF4B232DB17 /* HeimdallTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HeimdallTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FC5B3BDF9BCA4BB69E84AEA2 /* CodeIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeIdentity.swift; sourceTree = "<group>"; };
+		F29A2105CEB74854BB375B8A /* HelperInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperInstaller.swift; sourceTree = "<group>"; };
+		B2067D7549FE4BE596405C19 /* CodeIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeIdentityTests.swift; sourceTree = "<group>"; };
+		E8E258F986F340BEB6E6BFC7 /* HelperInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperInstallerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -280,6 +290,8 @@
 			isa = PBXGroup;
 			children = (
 				807132A334504906B8350E24 /* SMCDaemon.swift */,
+				FC5B3BDF9BCA4BB69E84AEA2 /* CodeIdentity.swift */,
+				F29A2105CEB74854BB375B8A /* HelperInstaller.swift */,
 			);
 			path = Daemon;
 			sourceTree = "<group>";
@@ -347,6 +359,8 @@
 		541DE245DF22430AB789447D /* HeimdallTests */ = {
 			isa = PBXGroup;
 			children = (
+				B2067D7549FE4BE596405C19 /* CodeIdentityTests.swift */,
+				E8E258F986F340BEB6E6BFC7 /* HelperInstallerTests.swift */,
 				5DDD022CB170473BA0CC0E2E /* TestSupport.swift */,
 				A5E1F54F02714D1ABCE40B47 /* SMCCodecTests.swift */,
 				0A55AD97DB3F4D5CB47EEB66 /* SMCFixtureReplayTests.swift */,
@@ -460,6 +474,8 @@
 				75675BCD15264B0A9279DE63 /* SMCCodec.swift in Sources */,
 				1A421084D795492ABDFDE7E1 /* SensorDefinitions.swift in Sources */,
 				1C44BEDA530947B5AD2F1A40 /* SMCDaemon.swift in Sources */,
+				C32C9E9141E34FA99BCDD196 /* CodeIdentity.swift in Sources */,
+				6CD62386C86B460488762241 /* HelperInstaller.swift in Sources */,
 				6F7FB4700A1F43E19C6A9BF7 /* HeimdallApp.swift in Sources */,
 				183B09C6290C425FB87AB11F /* MenuBarWidgetView.swift in Sources */,
 				FE2FCA39759A4BDCBD54ECE1 /* StatusBarController.swift in Sources */,
@@ -504,6 +520,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8039F25E03BA48EAA130352E /* CodeIdentity.swift in Sources */,
+				6CB0ECF0B8D84383B3374B47 /* HelperInstaller.swift in Sources */,
+				F3D46EA178574214873B85EA /* CodeIdentityTests.swift in Sources */,
+				94B4BEF704174230AB3D1301 /* HelperInstallerTests.swift in Sources */,
 				43BE4ABAF8774A9CA0B5528F /* TestSupport.swift in Sources */,
 				9D149124E6604AF69FE6BEEF /* SMCCodecTests.swift in Sources */,
 				216BFEFCE6B048059BC71F15 /* SMCFixtureReplayTests.swift in Sources */,

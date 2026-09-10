@@ -69,18 +69,28 @@ private struct FanHelperSettings: View {
                  Reading sensors needs no special access. Changing fan speeds does: \
                  macOS only lets a root process write to the System Management \
                  Controller, so Heimdall installs a small helper (\(SMCDaemon.daemonLabel)) \
-                 and talks to it over a local socket. The helper accepts only fan-related \
-                 SMC keys, and only from Heimdall itself.
+                 and talks to it over a local socket. The helper runs from a root-owned \
+                 copy of the app in /Library/PrivilegedHelperTools, accepts only \
+                 fan-related SMC keys, and only from this exact build of Heimdall — so \
+                 after an update it asks for your password once more.
                  """)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if !fan.hasWriteAccess {
-                Button("Enable Fan Control…") {
+                Button(fan.isRequestingAccess ? "Waiting for the helper…" : "Enable Fan Control…") {
                     commands.requestFanAccess()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(fan.isRequestingAccess)
+            }
+
+            if let error = fan.accessError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
@@ -98,6 +108,7 @@ private struct FanHelperSettings: View {
                          Run scripts/uninstall.sh from the Heimdall repository, or:
                          sudo launchctl bootout system/\(SMCDaemon.daemonLabel)
                          sudo rm \(SMCDaemon.plistPath)
+                         sudo rm -rf \(HelperInstaller.bundlePath)
 
                          Fans return to automatic control immediately.
                          """)

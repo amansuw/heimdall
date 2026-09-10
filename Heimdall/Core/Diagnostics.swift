@@ -23,6 +23,8 @@ enum Diagnostics {
         out.append("")
         out.append(contentsOf: gpuSection())
         out.append("")
+        out.append(contentsOf: helperSection())
+        out.append("")
         out.append(contentsOf: smcSection())
         return out.joined(separator: "\n")
     }
@@ -70,6 +72,27 @@ enum Diagnostics {
         lines.append("gpu-core-count: \(registryInt("gpu-core-count").map(String.init) ?? "unavailable")")
         lines.append("ANE present:    \(aneIsPresent() ? "yes" : "no")")
         return lines
+    }
+
+    /// Most "fan control does nothing" reports come down to the helper: missing,
+    /// from another build, or not where it must be.
+    private static func helperSection() -> [String] {
+        let appHash = CodeIdentity.currentCDHash()
+        let record = HelperInstaller.Record.load()
+        let copy: String
+        if !FileManager.default.fileExists(atPath: HelperInstaller.executablePath) {
+            copy = "absent"
+        } else {
+            copy = HelperInstaller.isRootOnly(HelperInstaller.executablePath) ? "present, root-only" : "present, NOT root-only"
+        }
+        return [
+            "## Fan helper",
+            "app cdhash:         \(appHash ?? "unsigned")",
+            "installed record:   \(record.map { "\($0.versionTag), cdhash \($0.cdhash)" } ?? "none")",
+            "matches this build: \(HelperInstaller.isInstalled(forCDHash: appHash, record: record) ? "yes" : "no")",
+            "helper copy:        \(copy)",
+            "socket:             \(FileManager.default.fileExists(atPath: SMCDaemon.socketPath) ? "present" : "absent")",
+        ]
     }
 
     private static func smcSection() -> [String] {

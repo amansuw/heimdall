@@ -25,13 +25,22 @@ struct FanSettingsView: View {
                     Text("Fan Settings").font(.largeTitle).fontWeight(.bold)
                     Spacer()
                     if !fan.hasWriteAccess {
-                        Button("Enable Control") {
+                        Button(fan.isRequestingAccess ? "Waiting for the helper…" : "Enable Control") {
                             showAccessPrompt = true
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(fan.isRequestingAccess)
                     }
                 }
                 .padding(.horizontal)
+
+                if let error = fan.accessError, !fan.hasWriteAccess {
+                    Label("Fan control could not be enabled: \(error)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                }
 
                 if fan.isYielding {
                     HStack {
@@ -85,7 +94,7 @@ struct FanSettingsView: View {
                 commands.requestFanAccess()
             }
         } message: {
-            Text("Fan control requires installing the Heimdall helper (one-time admin password) so we can talk to the SMC. Heimdall will momentarily pause while the helper requests access. Continue?")
+            Text("Changing fan speeds needs a small helper that runs as root. Heimdall installs a copy of itself in /Library/PrivilegedHelperTools, which asks for your administrator password — now, and once more after each update.")
         }
         .alert("Rename Profile", isPresented: Binding(
             get: { renamingProfile != nil },

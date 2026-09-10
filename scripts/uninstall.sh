@@ -23,10 +23,13 @@ DAEMON_LABEL="com.heimdall.smchelper"
 APP_BUNDLE_ID="com.heimdall.app"
 APP_PATH="/Applications/Heimdall.app"
 PLIST_PATH="/Library/LaunchDaemons/${DAEMON_LABEL}.plist"
+# The root helper runs from its own root-owned copy of the app.
+HELPER_PATH="/Library/PrivilegedHelperTools/${DAEMON_LABEL}.app"
 
 # Current runtime paths.
 SYSTEM_PATHS=(
   "$PLIST_PATH"
+  "$HELPER_PATH"
   "/var/run/heimdall"
   "/var/log/heimdall-daemon.log"
 )
@@ -257,16 +260,25 @@ fi
 # ---------------------------------------------------------------------------
 
 step "Returning fans to automatic control"
-if [ -x "${APP_PATH}/Contents/MacOS/Heimdall" ]; then
+# Either binary can do this; the helper copy is still there if the app was
+# already dragged to the Trash.
+RESET_BIN=""
+for candidate in "${APP_PATH}/Contents/MacOS/Heimdall" "${HELPER_PATH}/Contents/MacOS/Heimdall"; do
+  if [ -x "$candidate" ]; then
+    RESET_BIN="$candidate"
+    break
+  fi
+done
+if [ -n "$RESET_BIN" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then
-    say "  would run: sudo ${APP_PATH}/Contents/MacOS/Heimdall --reset-fans"
-  elif sudo "${APP_PATH}/Contents/MacOS/Heimdall" --reset-fans >/dev/null 2>&1; then
+    say "  would run: sudo ${RESET_BIN} --reset-fans"
+  elif sudo "$RESET_BIN" --reset-fans >/dev/null 2>&1; then
     say "  ok: fans reset to automatic"
   else
     say "  could not reset fans (harmless: macOS reclaims fan control on reboot)"
   fi
 else
-  say "  app binary not present; skipping"
+  say "  no Heimdall binary present; skipping"
 fi
 
 # ---------------------------------------------------------------------------

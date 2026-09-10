@@ -24,6 +24,9 @@ class FanState {
     var isControlActive = false
     var hasWriteAccess = false
     var isRequestingAccess = false
+    /// Why the last attempt to enable fan control failed, in words for the user.
+    /// nil when it succeeded, was cancelled, or has not been tried.
+    var accessError: String?
     var isYielding = false
     var isCurveCooldownActive = false
     var activeCurve: FanCurve?

@@ -46,6 +46,7 @@ cask "heimdall" do
             launchctl: "com.heimdall.smchelper",
             delete:    [
               "/Library/LaunchDaemons/com.heimdall.smchelper.plist",
+              "/Library/PrivilegedHelperTools/com.heimdall.smchelper.app",
               "/var/run/heimdall",
               "/var/log/heimdall-daemon.log",
             ]
@@ -56,6 +57,7 @@ cask "heimdall" do
   zap launchctl: "com.heimdall.smchelper",
       delete:    [
         "/Library/LaunchDaemons/com.heimdall.smchelper.plist",
+        "/Library/PrivilegedHelperTools/com.heimdall.smchelper.app",
         "/var/run/heimdall",
         "/var/log/heimdall-daemon.log",
         # Runtime files used by older builds.
@@ -88,8 +90,9 @@ cask "heimdall" do
 
     Fan control needs a small root helper (com.heimdall.smchelper) that talks to
     the System Management Controller. Heimdall asks for your admin password the
-    first time you use fan control, and never again. To remove the helper along
-    with everything else:
+    first time you use fan control, and once more after each upgrade: the helper
+    is a root-owned copy of the app and only trusts the exact build it was
+    copied from. To remove the helper along with everything else:
 
       brew uninstall --zap --cask heimdall
   EOS
