@@ -56,6 +56,15 @@ struct PowerReaderTests {
         #expect(power.memory == nil)
     }
 
+    /// Measured on an M3 Pro: 0 mJ idle, about 2.4 W while running Vision models.
+    @Test func anUnusedNeuralEngineReadsAsIdle() {
+        #expect(SoCPower(ane: 0).neuralEngineIsIdle)
+        #expect(SoCPower(ane: 0.0004).neuralEngineIsIdle)
+        #expect(!SoCPower(ane: 0.002).neuralEngineIsIdle)
+        #expect(!SoCPower(ane: 2.384).neuralEngineIsIdle)
+        #expect(!SoCPower().neuralEngineIsIdle, "no reading is unknown, not idle")
+    }
+
     @Test func missingRailsStayMissing() {
         let power = SoCPower(readings: [EnergyReading(channel: "CPU Energy", unit: "mJ", value: 1000)], interval: 1)
         #expect(power.gpu == nil)

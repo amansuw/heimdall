@@ -82,7 +82,7 @@ struct GPUView: View {
                         Divider()
                         HStack { Text("GPU power").foregroundStyle(.secondary); Spacer(); Text(soc.gpu.map(PowerFormatter.format) ?? "—") }
                         Divider()
-                        HStack { Text("Neural Engine power").foregroundStyle(.secondary); Spacer(); Text(soc.ane.map(PowerFormatter.format) ?? "—") }
+                        HStack { Text("Neural Engine power").foregroundStyle(.secondary); Spacer(); Text(soc.neuralEngineIsIdle ? "Idle" : (soc.ane.map(PowerFormatter.format) ?? "—")) }
                     }
                 }
                 .font(.callout)
