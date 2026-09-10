@@ -31,7 +31,6 @@ class MonitorCoordinator {
     private let slowQueue = DispatchQueue(label: "com.heimdall.monitor.slow", qos: .utility)
     private var fastSource: DispatchSourceTimer?
     private var slowSource: DispatchSourceTimer?
-    private var fastTickCount = 0
     private var slowTickCount = 0
     private var boostedPollingUntil: Date?
 
@@ -173,7 +172,6 @@ class MonitorCoordinator {
     private func fastTick() {
         guard !isSleeping else { return }
 
-        fastTickCount += 1
         let uiActive = isUIActive
 
         if !uiActive && !isBoostedPollingActive {
@@ -208,10 +206,7 @@ class MonitorCoordinator {
         let netResult = networkReader.read()
         let diskIOResult = diskReader.readIO()
 
-        var sensorResult: SensorReaderResult?
-        if isBoostedPollingActive || fastTickCount % 5 == 0 {
-            sensorResult = sensorReader.read()
-        }
+        let sensorResult = sensorReader.read()
 
         fanController?.readFanSpeeds()
 

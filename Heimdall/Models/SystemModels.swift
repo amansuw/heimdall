@@ -213,7 +213,7 @@ enum FanNaming {
 /// Anything a chart can plot or a ring buffer can window: it carries the
 /// wall-clock time of the sample. Charts plot against these timestamps, never
 /// against array index — the polling cadence is not constant (1s fan-boost /
-/// 2s visible / 30s background, with sensors sampled only every 5th fast tick).
+/// 2s visible / 30s background).
 protocol TimestampedSample {
     var timestamp: Date { get }
 }

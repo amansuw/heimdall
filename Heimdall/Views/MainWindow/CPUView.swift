@@ -41,11 +41,18 @@ struct CPUView: View {
                                 Spacer()
                                 Text("\(cores.count) cores").font(.caption).foregroundStyle(.secondary)
                             }
-                            // Wrap by width so a 32- or 40-core part does not stack
-                            // into a wall of rows.
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 26, maximum: 60), spacing: 4)], spacing: 4) {
+                            // One flexible column per core, wrapping after 10 so a
+                            // 32- or 40-core part does not become a wall of rows.
+                            // Adaptive min/max columns left 5 bars as 26pt stubs on the left.
+                            LazyVGrid(
+                                columns: Array(
+                                    repeating: GridItem(.flexible(minimum: 36), spacing: 8),
+                                    count: min(max(cores.count, 1), 10)
+                                ),
+                                spacing: 10
+                            ) {
                                 ForEach(cores) { core in
-                                    CoreUsageBar(id: core.id, usage: core.usage, color: clusterColor(cluster))
+                                    CoreUsageBar(id: core.id, usage: core.usage, color: clusterColor(cluster), barHeight: 72)
                                 }
                             }
                         }
@@ -182,9 +189,10 @@ struct CoreUsageBar: View {
             .help(String(format: "Core %d: %.1f%%", id, usage))
 
             Text("\(id)")
-                .font(.system(size: 7))
+                .font(.system(size: 9))
                 .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity)
     }
 }
 
