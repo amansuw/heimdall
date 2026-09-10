@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00FC761D30D84B4A8513BC50 /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7923F0266409455EB3603AE0 /* Diagnostics.swift */; };
 		4B763423C82846E59F5D64B9 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29F7647CC104BD48E817BC5 /* AppSettings.swift */; };
 		8FF2AFBD99374CDBAFA03F1F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DF0A43949E40258E62FD16 /* SettingsView.swift */; };
 		9DCD6FF0ECB0460EA4FCBF4E /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F6E72B3DD946ECA4735A0D /* Notifications.swift */; };
@@ -59,6 +60,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		7923F0266409455EB3603AE0 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
 		C29F7647CC104BD48E817BC5 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		E0DF0A43949E40258E62FD16 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		45F6E72B3DD946ECA4735A0D /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
@@ -269,6 +271,7 @@
 		EE7111168B0D4D15A8B8F5A9 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				7923F0266409455EB3603AE0 /* Diagnostics.swift */,
 				45F6E72B3DD946ECA4735A0D /* Notifications.swift */,
 				5A7AE93D7EE0404D8A745B03 /* Formatters.swift */,
 				658DAEC6D79C44A68D9F258F /* RingBuffer.swift */,
@@ -367,6 +370,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				00FC761D30D84B4A8513BC50 /* Diagnostics.swift in Sources */,
 				4B763423C82846E59F5D64B9 /* AppSettings.swift in Sources */,
 				8FF2AFBD99374CDBAFA03F1F /* SettingsView.swift in Sources */,
 				9DCD6FF0ECB0460EA4FCBF4E /* Notifications.swift in Sources */,

@@ -22,5 +22,10 @@ if CommandLine.arguments.contains("--reset-fans") {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--dump-diagnostics") {
+    print(Diagnostics.report())
+    exit(0)
+}
+
 // Normal GUI app launch
 HeimdallApp.main()
