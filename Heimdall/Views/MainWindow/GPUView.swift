@@ -6,7 +6,6 @@ struct GPUView: View {
 
     var body: some View {
         @Bindable var gpuBinding = gpu
-        @Bindable var powerBinding = power
         ScrollView {
             VStack(spacing: 20) {
                 HStack {
@@ -46,29 +45,6 @@ struct GPUView: View {
                 )
                 .padding(.horizontal)
 
-                // SoC power from IOReport; hidden where it is unavailable.
-                if power.latest != nil {
-                    HistoryChartCard(
-                        title: "Power History",
-                        icon: "bolt.fill",
-                        range: $powerBinding.historyRange,
-                        series: [
-                            .init(power.filteredHistory, value: { $0.cpu }, color: .blue, label: "CPU"),
-                            .init(power.filteredHistory, value: { $0.gpu }, color: .green, label: "GPU"),
-                            .init(power.filteredHistory, value: { $0.ane }, color: .purple, label: "Neural Engine"),
-                        ],
-                        yFormatter: { String(format: "%.1f W", $0) },
-                        tooltipFormatter: { PowerFormatter.format($0) }
-                    ) {
-                        if let total = power.latest?.combined {
-                            Text("SoC \(PowerFormatter.format(total))").font(.caption).foregroundStyle(.secondary)
-                        }
-                    } subheader: {
-                        EmptyView()
-                    }
-                    .padding(.horizontal)
-                }
-
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Details").font(.headline)
                     HStack { Text("Model").foregroundStyle(.secondary); Spacer(); Text(gpu.usage.modelName) }
@@ -81,8 +57,6 @@ struct GPUView: View {
                     if let soc = power.latest {
                         Divider()
                         HStack { Text("GPU power").foregroundStyle(.secondary); Spacer(); Text(soc.gpu.map(PowerFormatter.format) ?? "—") }
-                        Divider()
-                        HStack { Text("Neural Engine power").foregroundStyle(.secondary); Spacer(); Text(soc.neuralEngineIsIdle ? "Idle" : (soc.ane.map(PowerFormatter.format) ?? "—")) }
                     }
                 }
                 .font(.callout)

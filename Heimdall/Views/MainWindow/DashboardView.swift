@@ -15,6 +15,7 @@ struct DashboardView: View {
 
     var body: some View {
         @Bindable var sensorBinding = sensors
+        @Bindable var powerBinding = power
         ScrollView {
             VStack(spacing: 20) {
                 // Header
@@ -85,20 +86,6 @@ struct DashboardView: View {
                 }
                 .padding(.horizontal)
 
-                // SoC power from IOReport; hidden where it is unavailable.
-                if let soc = power.latest {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
-                        StatCard(title: "CPU Power", value: powerText(soc.cpu), icon: "cpu", color: .blue)
-                        StatCard(title: "GPU Power", value: powerText(soc.gpu),
-                                 icon: "square.3.layers.3d.top.filled", color: .green)
-                        StatCard(title: "Neural Engine",
-                                 value: soc.neuralEngineIsIdle ? "Idle" : powerText(soc.ane),
-                                 icon: "brain", color: soc.neuralEngineIsIdle ? Color.secondary : .purple)
-                        StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "bolt.fill", color: .orange)
-                    }
-                    .padding(.horizontal)
-                }
-
                 // Temperature history chart
                 HistoryChartCard(
                     title: "Temperature History",
@@ -122,6 +109,41 @@ struct DashboardView: View {
                     EmptyView()
                 }
                 .padding(.horizontal)
+
+                // SoC power from IOReport; hidden where it is unavailable.
+                if let soc = power.latest {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
+                        StatCard(title: "CPU Power", value: powerText(soc.cpu), icon: "cpu", color: .blue)
+                        StatCard(title: "GPU Power", value: powerText(soc.gpu),
+                                 icon: "square.3.layers.3d.top.filled", color: .green)
+                        StatCard(title: "Neural Engine",
+                                 value: soc.neuralEngineIsIdle ? "Idle" : powerText(soc.ane),
+                                 icon: "brain", color: soc.neuralEngineIsIdle ? Color.secondary : .purple)
+                        StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "bolt.fill", color: .orange)
+                    }
+                    .padding(.horizontal)
+
+                    HistoryChartCard(
+                        title: "Power History",
+                        icon: "bolt.fill",
+                        range: $powerBinding.historyRange,
+                        series: [
+                            .init(power.filteredHistory, value: { $0.cpu }, color: .blue, label: "CPU"),
+                            .init(power.filteredHistory, value: { $0.gpu }, color: .green, label: "GPU"),
+                            .init(power.filteredHistory, value: { $0.ane }, color: .purple, label: "Neural Engine"),
+                        ],
+                        yFormatter: { String(format: "%.1f W", $0) },
+                        tooltipFormatter: { PowerFormatter.format($0) },
+                        height: 180
+                    ) {
+                        if let total = soc.combined {
+                            Text("SoC \(PowerFormatter.format(total))").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } subheader: {
+                        EmptyView()
+                    }
+                    .padding(.horizontal)
+                }
 
                 // Fan status + Quick presets
                 DashboardFanCard()
