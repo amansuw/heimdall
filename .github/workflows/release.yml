@@ -54,6 +54,9 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "dmg=Heimdall-$VERSION.dmg" >> "$GITHUB_OUTPUT"
+          # Sparkle compares CFBundleVersion, so it must only ever rise. The commit
+          # count up to the tag does, and stays the same if a tag is rebuilt.
+          echo "build=$(git rev-list --count "$TAG")" >> "$GITHUB_OUTPUT"
           echo "Building $TAG (version $VERSION)"
 
       - name: Show toolchain
@@ -66,6 +69,11 @@ jobs:
       - name: Build Release (ad-hoc signed)
         env:
           DERIVED: ${{ runner.temp }}/DerivedData
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUMBER: ${{ steps.meta.outputs.build }}
+          # Public, so a repository variable rather than a secret. Empty until
+          # in-app updates are set up (docs/RELEASING.md), which leaves them off.
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           # The project already pins CODE_SIGN_IDENTITY to "-" (ad-hoc) with an
@@ -87,6 +95,9 @@ jobs:
             CODE_SIGNING_REQUIRED=YES \
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
             build
 
       - name: Stage the app bundle
@@ -195,6 +206,58 @@ jobs:
           SHA="$(awk '{print $1}' SHA256SUMS.txt)"
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Sign the update and write the appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          DERIVED: ${{ runner.temp }}/DerivedData
+          DMG_NAME: ${{ steps.meta.outputs.dmg }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUMBER: ${{ steps.meta.outputs.build }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SPARKLE_PUBLIC_KEY" ]; then
+            echo "::notice::SPARKLE_PUBLIC_KEY is not set: this release has in-app updates off and no appcast."
+            exit 0
+          fi
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "::error::SPARKLE_PUBLIC_KEY is set but the SPARKLE_PRIVATE_KEY secret is not, so the update cannot be signed."
+            exit 1
+          fi
+
+          SIGN_UPDATE="$(find "$DERIVED/SourcePackages/artifacts" -type f -name sign_update -perm -u+x | head -1)"
+          test -n "$SIGN_UPDATE" || { echo "::error::sign_update was not found in the resolved Sparkle package"; exit 1; }
+
+          # The private key reaches sign_update on stdin and is never written to disk.
+          ATTRS="$(printf '%s' "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - "dist/$DMG_NAME")"
+          case "$ATTRS" in
+            *'sparkle:edSignature="'*'length="'*) echo "$ATTRS" ;;
+            *) echo "::error::unexpected sign_update output"; exit 1 ;;
+          esac
+
+          PUB_DATE="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+          cat > dist/appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Heimdall</title>
+              <item>
+                <title>Heimdall $VERSION</title>
+                <pubDate>$PUB_DATE</pubDate>
+                <sparkle:version>$BUILD_NUMBER</sparkle:version>
+                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+                <sparkle:releaseNotesLink>https://github.com/$REPO/releases/tag/$TAG</sparkle:releaseNotesLink>
+                <enclosure url="https://github.com/$REPO/releases/download/$TAG/$DMG_NAME" type="application/octet-stream" $ATTRS />
+              </item>
+            </channel>
+          </rss>
+          EOF
+          xmllint --noout dist/appcast.xml
+          cat dist/appcast.xml
+
       # Build provenance is this project's stand-in for notarization. It binds
       # the DMG's digest to this repository, this workflow file and this commit,
       # signed by GitHub's Sigstore instance. It does not make Gatekeeper happy,
@@ -269,14 +332,17 @@ jobs:
           DMG_NAME: ${{ steps.meta.outputs.dmg }}
         run: |
           set -euo pipefail
+          ASSETS=("dist/$DMG_NAME" dist/SHA256SUMS.txt)
+          # The app's feed is releases/latest/download/appcast.xml, so the appcast
+          # must ride along with the release it describes.
+          if [ -f dist/appcast.xml ]; then ASSETS+=(dist/appcast.xml); fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; updating notes and re-uploading assets."
             gh release edit "$TAG" --notes-file dist/RELEASE_NOTES.md
-            gh release upload "$TAG" "dist/$DMG_NAME" dist/SHA256SUMS.txt --clobber
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
             gh release create "$TAG" \
-              "dist/$DMG_NAME" \
-              dist/SHA256SUMS.txt \
+              "${ASSETS[@]}" \
               --title "Heimdall $VERSION" \
               --notes-file dist/RELEASE_NOTES.md
           fi

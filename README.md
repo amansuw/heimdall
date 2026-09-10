@@ -160,6 +160,26 @@ No Apple Developer account is needed to build — the project signs ad-hoc
 
 ---
 
+## Updates
+
+**Downloaded the DMG?** Release builds check for updates themselves and ask
+before installing one. You can also choose **Heimdall → Check for Updates…** or
+use the button in **Settings → General**. Every update is verified against a
+signing key built into the app before it is installed, and because Heimdall
+installs it itself, you do not repeat the Privacy & Security approval.
+
+The first time you use fan control after an update, Heimdall asks for your
+password once more to install the matching background helper.
+
+**Homebrew:** `brew upgrade --cask --greedy heimdall`.
+
+**Built from source:** pull and rebuild. Source builds carry no update key, so
+the updater stays off.
+
+Maintainers: see [docs/RELEASING.md](docs/RELEASING.md).
+
+---
+
 ## Why does macOS warn about this app?
 
 **Short version:** Heimdall has no paid Apple Developer account, so Apple has
