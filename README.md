@@ -199,13 +199,19 @@ LaunchDaemon:
 |---|---|
 | Label | `com.heimdall.smchelper` |
 | Configuration | `/Library/LaunchDaemons/com.heimdall.smchelper.plist` |
-| What runs | the same `Heimdall` binary, started with `--smc-daemon` |
+| What runs | a root-owned copy of the app, `/Library/PrivilegedHelperTools/com.heimdall.smchelper.app`, started with `--smc-daemon` |
 | Talks to the app over | a local socket file under `/var/run/heimdall` |
 | Log | `/var/log/heimdall-daemon.log` |
 | Network access | none |
 
-It exists to do one job: read and write SMC keys when the app asks. That is why
-the password prompt appears once and then never again.
+It exists to do one job: read and write fan-related SMC keys when the app asks.
+
+It runs from its own copy because launchd starts it as root. The app in
+`/Applications` can be replaced by any program running as you; the copy in
+`/Library/PrivilegedHelperTools` can only be changed by root. The helper accepts
+connections only from an app whose code signature matches its own, so a
+modified or substituted app is refused — and after you update Heimdall, it asks
+for your password once more to install the helper that matches the new version.
 
 **It is not removed when you drag the app to the Trash.** The daemon keeps
 running. Use one of the uninstall methods below.
@@ -259,7 +265,8 @@ It prints exactly what it will delete and waits for you to confirm. Add
 keep your fan profiles and curves.
 
 It quits the app, returns your fans to macOS automatic control, unloads
-`com.heimdall.smchelper`, and removes the daemon's plist, `/var/run/heimdall`,
+`com.heimdall.smchelper`, and removes the daemon's plist, the helper copy in
+`/Library/PrivilegedHelperTools`, `/var/run/heimdall`,
 `/var/log/heimdall-daemon.log`, `/Applications/Heimdall.app` and your Heimdall
 preferences. Anything already gone is skipped, so it is safe to run twice or
 after a partial manual cleanup.

@@ -5,27 +5,31 @@ class SMCDaemon {
     /// pre-created, symlinked or replaced by an unprivileged process.
     static let socketDir = "/var/run/heimdall"
     static let socketPath = "/var/run/heimdall/smc.sock"
-    static let logPath = "/var/log/heimdall-daemon.log"
+    static let logPath = HelperInstaller.logPath
 
-    /// Bumped whenever the installed plist must be replaced (paths, arguments, policy).
-    /// `isDaemonInstalled()` compares this against the on-disk plist so upgrades reinstall.
-    static let daemonVersion = "3"
-
-    static let daemonLabel = "com.heimdall.smchelper"
-    static let plistPath = "/Library/LaunchDaemons/com.heimdall.smchelper.plist"
+    static var daemonLabel: String { HelperInstaller.label }
+    static var plistPath: String { HelperInstaller.plistPath }
 
     // MARK: - Daemon lifecycle
 
     static func runPersistent() {
         log("Daemon starting — uid=\(getuid()), euid=\(geteuid()), pid=\(getpid())")
 
-        // The whole peer check below rests on this binary living somewhere only root
-        // can write. If it does not, any local user could replace it and be trusted.
-        guard let selfPath = currentExecutablePath(), isRootOwnedAndNotUserWritable(selfPath) else {
-            log("FATAL: refusing to run — executable is missing or user-writable")
+        // launchd runs this as root, so it must only ever run from the installed copy,
+        // where the file and every directory above it are root-only. Anywhere else —
+        // an app bundle in /Applications included — could be swapped out underneath it.
+        guard let selfPath = currentExecutablePath(),
+              selfPath == HelperInstaller.executablePath,
+              HelperInstaller.isRootOnly(selfPath) else {
+            log("FATAL: refusing to run — not the root-only helper at \(HelperInstaller.executablePath)")
             exit(1)
         }
-        log("Authorized client path: \(selfPath)")
+        // Clients are admitted by code signature: only this exact build may connect.
+        guard let ownCDHash = CodeIdentity.currentCDHash() else {
+            log("FATAL: refusing to run — the helper has no code signature to admit clients by")
+            exit(1)
+        }
+        log("Admitting clients signed with cdhash \(ownCDHash)")
 
         let smc = SMCKit.shared
         log("SMC open: \(smc.isOpen)")
@@ -45,7 +49,7 @@ class SMCDaemon {
                 continue
             }
 
-            if let reason = rejectionReason(forPeerOf: client, expecting: selfPath) {
+            if let reason = rejectionReason(forPeerOf: client, selfPath: selfPath, cdhash: ownCDHash) {
                 log("REJECTED connection: \(reason)")
                 Darwin.close(client)
                 continue
@@ -114,37 +118,17 @@ class SMCDaemon {
 
     /// Returns nil when the peer may proceed, otherwise why it was refused.
     ///
-    /// The app is distributed unsigned, so there is no Team ID to check. Instead the
-    /// peer must be running the *same* executable this daemon was launched from, and
-    /// that file must be root-owned and not user-writable — a condition an
-    /// unprivileged attacker cannot manufacture.
-    private static func rejectionReason(forPeerOf fd: Int32, expecting expectedPath: String) -> String? {
-        var pid: pid_t = 0
-        var len = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0, pid > 0 else {
-            return "could not determine peer pid"
+    /// The app is ad-hoc signed, so there is no Team ID to check. The peer must be
+    /// running exactly this build — the helper's own cdhash, since the helper was
+    /// copied from the app that installed it — and the helper must still be
+    /// root-only. Where the app itself lives does not matter: a replaced or modified
+    /// app has a different cdhash.
+    private static func rejectionReason(forPeerOf fd: Int32, selfPath: String, cdhash: String) -> String? {
+        // Re-check per connection: the helper may have been tampered with since launch.
+        guard HelperInstaller.isRootOnly(selfPath) else {
+            return "\(selfPath) is no longer root-only"
         }
-
-        var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        let n = proc_pidpath(pid, &buf, UInt32(buf.count))
-        guard n > 0 else { return "could not resolve path of pid \(pid)" }
-        let peerPath = String(cString: buf)
-
-        guard peerPath == expectedPath else {
-            return "pid \(pid) is \(peerPath), expected \(expectedPath)"
-        }
-        // Re-check ownership per connection: the binary may have been swapped since launch.
-        guard isRootOwnedAndNotUserWritable(peerPath) else {
-            return "\(peerPath) is no longer root-owned and write-protected"
-        }
-        return nil
-    }
-
-    private static func isRootOwnedAndNotUserWritable(_ path: String) -> Bool {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return false }
-        guard st.st_uid == 0 else { return false }
-        return (st.st_mode & S_IWGRP) == 0 && (st.st_mode & S_IWOTH) == 0
+        return CodeIdentity.rejectionReason(forPeerOf: fd, requiringCDHash: cdhash)
     }
 
     private static func currentExecutablePath() -> String? {
@@ -247,6 +231,11 @@ class SMCDaemon {
         guard !parts.isEmpty else { return "ERR empty" }
 
         switch String(parts[0]) {
+        case "PING":
+            // Lets a client tell an admitted connection from one this helper refused
+            // and closed, or from a helper of another version.
+            return "PONG \(HelperInstaller.versionTag)"
+
         case "WRITE":
             guard parts.count >= 3 else { return "ERR write_args" }
             let key = normalizedKey(String(parts[1]))
@@ -287,78 +276,15 @@ class SMCDaemon {
         FileManager.default.fileExists(atPath: socketPath)
     }
 
-    /// True only when the installed plist matches the current daemon version, so a
-    /// stale plist from an older build is treated as "not installed" and gets replaced.
+    /// True only when the installed helper is this layout and this exact build. A
+    /// helper from any other build would refuse this app, so it gets reinstalled.
     static func isDaemonInstalled() -> Bool {
-        guard let contents = try? String(contentsOfFile: plistPath, encoding: .utf8) else { return false }
-        return contents.contains("<string>heimdall-daemon-v\(daemonVersion)</string>")
+        HelperInstaller.isInstalled(forCDHash: CodeIdentity.currentCDHash())
     }
 
-    /// The peer check only means something if the app binary cannot be replaced by
-    /// an unprivileged process. Installing from ~/Downloads would have launchd run a
-    /// user-writable binary as root at every boot.
-    static func isInstallLocationAcceptable() -> Bool {
-        guard let execPath = Bundle.main.executablePath else { return false }
-        var st = stat()
-        guard lstat(execPath, &st) == 0 else { return false }
-        return st.st_uid == 0 && (st.st_mode & S_IWGRP) == 0 && (st.st_mode & S_IWOTH) == 0
-    }
-
-    static func installDaemon() -> Bool {
-        guard let execPath = Bundle.main.executablePath else { return false }
-
-        guard isInstallLocationAcceptable() else {
-            log("Refusing to install: \(execPath) is user-writable. Move Heimdall to /Applications first.")
-            return false
-        }
-
-        let plistContent = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>\(daemonLabel)</string>
-    <key>HeimdallDaemonVersion</key>
-    <string>heimdall-daemon-v\(daemonVersion)</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>\(execPath)</string>
-        <string>--smc-daemon</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>\(logPath)</string>
-    <key>StandardErrorPath</key>
-    <string>\(logPath)</string>
-</dict>
-</plist>
-"""
-
-        let tmpPlist = NSTemporaryDirectory() + "com.heimdall.smchelper.plist"
-        try? plistContent.write(toFile: tmpPlist, atomically: true, encoding: .utf8)
-
-        let script = """
-        do shell script "cp '\(tmpPlist)' '\(plistPath)' && \
-        chmod 644 '\(plistPath)' && \
-        launchctl bootout system/\(daemonLabel) 2>/dev/null; \
-        launchctl bootstrap system '\(plistPath)'" with administrator privileges
-        """
-
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        proc.arguments = ["-e", script]
-
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            return proc.terminationStatus == 0
-        } catch {
-            return false
-        }
+    /// Copies this app into place as the root helper, behind one password prompt.
+    static func installDaemon() -> HelperInstaller.Outcome {
+        HelperInstaller.install(appBundlePath: Bundle.main.bundlePath, cdhash: CodeIdentity.currentCDHash() ?? "")
     }
 
     // MARK: - Helpers
