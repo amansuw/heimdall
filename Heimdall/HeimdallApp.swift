@@ -5,33 +5,21 @@ struct HeimdallApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        Window("Heimdall", id: "main") {
-            ContentView()
-                .environment(appDelegate.cpuState)
-                .environment(appDelegate.gpuState)
-                .environment(appDelegate.ramState)
-                .environment(appDelegate.diskState)
-                .environment(appDelegate.networkState)
-                .environment(appDelegate.batteryState)
-                .environment(appDelegate.sensorState)
-                .environment(appDelegate.fanState)
-                .environment(appDelegate.profileState)
-                .environment(AppSettings.shared)
-                .frame(minWidth: 900, minHeight: 650)
-        }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
-        .defaultSize(width: 1050, height: 750)
-        .commands {
-            // Without these the standard Edit shortcuts do not exist, so text fields
-            // in the curve editor and the rename dialog had no Cmd-A/C/V/Z.
-            TextEditingCommands()
-        }
-
+        // The dashboard is deliberately NOT a SwiftUI Window scene. An accessory
+        // (LSUIElement) app does not get one presented at launch, and once closed
+        // there is no supported way to bring it back — no Dock tile to click, and
+        // openWindow is only reachable from a live view. AppDelegate owns the
+        // window through AppKit instead, so it can be opened on demand, on first
+        // run, and on reopen.
         Settings {
             SettingsView()
                 .environment(AppSettings.shared)
                 .environment(appDelegate.fanState)
+        }
+        .commands {
+            // Without these the standard Edit shortcuts do not exist, so text fields
+            // in the curve editor and the rename dialog had no Cmd-A/C/V/Z.
+            TextEditingCommands()
         }
     }
 }
@@ -59,6 +47,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Notification observers
     private var observers: [Any] = []
 
+    /// The dashboard window, created on demand. Held so it can be re-shown.
+    private var mainWindowController: NSWindowController?
+
     let settings = AppSettings.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -72,6 +63,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowVisibilityTracking()
         fanController.restoreWriteAccessSilently()
 
+        // Show the dashboard the first time Heimdall is ever run, so a new user
+        // sees something other than a menu bar glyph they may not spot.
+        if !settings.hasCompletedFirstRun {
+            settings.hasCompletedFirstRun = true
+            showMainWindow()
+        }
+
         // Discover fans on background queue
         DispatchQueue.global(qos: .utility).async { [weak self] in
             self?.fanController.discoverFans()
@@ -82,19 +80,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// Reopen (Dock click, or `open` on an already-running copy). The menu bar
-    /// popover is the primary way back to the dashboard, but when AppKit still has
-    /// the window object around this restores it without going through the popover.
+    /// Reopen: Dock click, or `open` on an already-running copy.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard !flag else { return true }
-        if let existing = NSApp.windows.first(where: {
-            $0.styleMask.contains(.titled) && $0.frame.width >= 700
-        }) {
-            existing.makeKeyAndOrderFront(nil)
+        if !flag { showMainWindow() }
+        return true
+    }
+
+    /// Creates the dashboard window, or brings the existing one back to the front.
+    func showMainWindow() {
+        if let controller = mainWindowController, let window = controller.window {
+            window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             refreshMainWindowVisibility()
+            return
         }
-        return true
+
+        let root = ContentView()
+            .environment(cpuState)
+            .environment(gpuState)
+            .environment(ramState)
+            .environment(diskState)
+            .environment(networkState)
+            .environment(batteryState)
+            .environment(sensorState)
+            .environment(fanState)
+            .environment(profileState)
+            .environment(AppSettings.shared)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1050, height: 750),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Heimdall"
+        window.contentViewController = NSHostingController(rootView: root)
+        window.minSize = NSSize(width: 900, height: 650)
+        window.isReleasedWhenClosed = false
+        window.setFrameAutosaveName("HeimdallMain")
+        window.center()
+
+        mainWindowController = NSWindowController(window: window)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        refreshMainWindowVisibility()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -226,6 +255,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupNotificationHandlers() {
+        observers.append(
+            NotificationCenter.default.addObserver(forName: .openMainWindow, object: nil, queue: .main) { [weak self] _ in
+                self?.showMainWindow()
+            }
+        )
+
         observers.append(
             NotificationCenter.default.addObserver(forName: .requestFanAccess, object: nil, queue: .main) { [weak self] _ in
                 self?.fanController.requestAdminAccess()

@@ -10,4 +10,8 @@ extension Notification.Name {
     static let fanSetAllAuto = Notification.Name("fanSetAllAuto")
     static let fanSetAllSpeed = Notification.Name("fanSetAllSpeed")
     static let fanApplyManual = Notification.Name("fanApplyManual")
+
+    /// Asks AppDelegate to show the dashboard. The window is AppKit-owned, so
+    /// views request it rather than opening it themselves.
+    static let openMainWindow = Notification.Name("openMainWindow")
 }
