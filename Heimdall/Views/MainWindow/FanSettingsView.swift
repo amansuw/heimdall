@@ -266,8 +266,8 @@ struct FanSettingsView: View {
     @State private var draggingPointID: UUID? = nil
     @State private var isDraggingCurve = false
 
-    private static let curveMinTemp: Double = 20
-    private static let curveMaxTemp: Double = 110
+    private static let curveMinTemp = FanCurvePlane.minTemperature
+    private static let curveMaxTemp = FanCurvePlane.maxTemperature
     /// Minimum °C between adjacent control points.
     private static let minPointSpacing: Double = 1
     /// How close (in points) a click must be to grab an existing control point / the curve line.
@@ -275,6 +275,9 @@ struct FanSettingsView: View {
     private static let lineGrabRadius: CGFloat = 10
     /// Horizontal clearance a click needs from existing points before it inserts a new one.
     private static let minInsertDistance: CGFloat = 20
+
+    /// Curves are stored in °C; the editor shows and accepts the user's unit.
+    private var temperatureUnit: TemperatureUnit { AppSettings.shared.temperatureUnit }
 
     /// Pushes the edited curve into live state right away (cheap) but coalesces the notification
     /// that kicks off the SMC write sequence (expensive).
@@ -482,11 +485,11 @@ struct FanSettingsView: View {
 
         // Axis labels
         HStack {
-            Text("20°C").font(.caption2).foregroundStyle(.secondary)
+            Text(TempFormatter.formatWhole(Self.curveMinTemp)).font(.caption2).foregroundStyle(.secondary)
             Spacer()
             Text("Temperature").font(.caption2).foregroundStyle(.secondary)
             Spacer()
-            Text("110°C").font(.caption2).foregroundStyle(.secondary)
+            Text(TempFormatter.formatWhole(Self.curveMaxTemp)).font(.caption2).foregroundStyle(.secondary)
         }
 
         // Editable control points table
@@ -527,10 +530,11 @@ struct FanSettingsView: View {
                 // Temp field
                 HStack(spacing: 3) {
                     TextField("", value: Binding(
-                        get: { Int(point.temperature) },
+                        get: { Int(temperatureUnit.convert(point.temperature).rounded()) },
                         set: {
+                            let celsius = temperatureUnit.toCelsius(Double($0))
                             curve.updatePoint(id: point.id,
-                                              temperature: constrainedTemperature(Double($0), for: point.id))
+                                              temperature: constrainedTemperature(celsius, for: point.id))
                             onEdit()
                         }
                     ), format: .number)
@@ -538,7 +542,7 @@ struct FanSettingsView: View {
                     .frame(width: 44)
                     .font(.caption)
                     .multilineTextAlignment(.trailing)
-                    Text("°C").font(.caption2).foregroundStyle(.secondary)
+                    Text(temperatureUnit.suffix).font(.caption2).foregroundStyle(.secondary)
                 }
 
                 Image(systemName: "arrow.right").foregroundStyle(.secondary).font(.caption2)
@@ -750,33 +754,9 @@ struct FanSettingsView: View {
 
     // MARK: - Curve Preview Canvas
 
-    @ViewBuilder
     private func curvePreview(curve: FanCurve) -> some View {
-        Canvas { context, size in
-            let sorted = curve.sortedPoints
-            guard sorted.count >= 2 else { return }
-
-            var path = Path()
-            for (i, point) in sorted.enumerated() {
-                let x = ((point.temperature - 20) / 90) * size.width
-                let y = size.height - (CGFloat(point.fanSpeed) / 100.0) * size.height
-                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                else { path.addLine(to: CGPoint(x: x, y: y)) }
-            }
-
-            // Fill
-            var fillPath = path
-            if let last = sorted.last {
-                fillPath.addLine(to: CGPoint(x: ((last.temperature - 20) / 90) * size.width, y: size.height))
-            }
-            if let first = sorted.first {
-                fillPath.addLine(to: CGPoint(x: ((first.temperature - 20) / 90) * size.width, y: size.height))
-            }
-            fillPath.closeSubpath()
-            context.fill(fillPath, with: .color(.blue.opacity(0.1)))
-            context.stroke(path, with: .color(.blue.opacity(0.6)), lineWidth: 1)
-        }
-        .background(Color.secondary.opacity(0.03))
+        FanCurvePreview(curve: curve, lineOpacity: 0.6, fillOpacity: 0.1, lineWidth: 1)
+            .background(Color.secondary.opacity(0.03))
     }
 
     // MARK: - Curve Canvas Drawing
@@ -784,10 +764,11 @@ struct FanSettingsView: View {
     private func drawCurveCanvas(context: GraphicsContext, size: CGSize, hover: CGPoint?) {
         let sorted = curve.sortedPoints
         guard sorted.count >= 2 else { return }
+        let plane = FanCurvePlane(size: size)
 
         // Grid lines
         for i in stride(from: 0.0, through: 100.0, by: 25.0) {
-            let y = size.height - (CGFloat(i) / 100.0) * size.height
+            let y = plane.y(forSpeed: i)
             var gridPath = Path()
             gridPath.move(to: CGPoint(x: 0, y: y))
             gridPath.addLine(to: CGPoint(x: size.width, y: y))
@@ -795,40 +776,23 @@ struct FanSettingsView: View {
         }
 
         for temp in stride(from: 30.0, through: 100.0, by: 10.0) {
-            let x = ((temp - 20) / 90) * size.width
+            let x = plane.x(forTemperature: temp)
             var gridPath = Path()
             gridPath.move(to: CGPoint(x: x, y: 0))
             gridPath.addLine(to: CGPoint(x: x, y: size.height))
             context.stroke(gridPath, with: .color(.secondary.opacity(0.15)), lineWidth: 0.5)
         }
 
-        // Curve line
-        var linePath = Path()
-        for (i, point) in sorted.enumerated() {
-            let x = ((point.temperature - 20) / 90) * size.width
-            let y = size.height - (CGFloat(point.fanSpeed) / 100.0) * size.height
-            if i == 0 { linePath.move(to: CGPoint(x: x, y: y)) }
-            else { linePath.addLine(to: CGPoint(x: x, y: y)) }
-        }
-        context.stroke(linePath, with: .color(.blue), lineWidth: 2)
-
-        // Fill under curve
-        var fillPath = linePath
-        if let lastPoint = sorted.last {
-            fillPath.addLine(to: CGPoint(x: ((lastPoint.temperature - 20) / 90) * size.width, y: size.height))
-        }
-        if let firstPoint = sorted.first {
-            fillPath.addLine(to: CGPoint(x: ((firstPoint.temperature - 20) / 90) * size.width, y: size.height))
-        }
-        fillPath.closeSubpath()
-        context.fill(fillPath, with: .color(.blue.opacity(0.1)))
+        // Curve line, then the fill under it
+        let paths = plane.paths(for: sorted)
+        context.stroke(paths.line, with: .color(.blue), lineWidth: 2)
+        context.fill(paths.area, with: .color(.blue.opacity(0.1)))
 
         // Control points
         for point in sorted {
-            let x = ((point.temperature - 20) / 90) * size.width
-            let y = size.height - (CGFloat(point.fanSpeed) / 100.0) * size.height
+            let center = plane.position(of: point)
             let radius: CGFloat = 6
-            let circle = Path(ellipseIn: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
+            let circle = Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
             context.fill(circle, with: .color(.blue))
             context.stroke(circle, with: .color(.white), lineWidth: 2)
         }
@@ -836,14 +800,14 @@ struct FanSettingsView: View {
         // Current sensor temp + running fan speed (red)
         let currentTemp = sensorTemp(for: selectedSensorKey)
         if currentTemp > 0, size.width > 0, size.height > 0 {
-            let curX = ((currentTemp - 20) / 90) * size.width
+            let curX = plane.x(forTemperature: currentTemp)
             var indicatorPath = Path()
             indicatorPath.move(to: CGPoint(x: curX, y: 0))
             indicatorPath.addLine(to: CGPoint(x: curX, y: size.height))
             context.stroke(indicatorPath, with: .color(.red.opacity(0.5)),
                          style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
 
-            let runningY = size.height - (CGFloat(fan.averageSpeedPercentage) / 100.0) * size.height
+            let runningY = plane.y(forSpeed: fan.averageSpeedPercentage)
             let redDot = Path(ellipseIn: CGRect(x: curX - 4, y: runningY - 4, width: 8, height: 8))
             context.fill(redDot, with: .color(.red))
             context.stroke(redDot, with: .color(.white), lineWidth: 1.5)
@@ -853,9 +817,9 @@ struct FanSettingsView: View {
         if let hover, size.width > 0, size.height > 0 {
             let clampedX = max(0, min(size.width, hover.x))
             let clampedY = max(0, min(size.height, hover.y))
-            let hoverTemp = (clampedX / size.width) * 90 + 20
+            let hoverTemp = plane.temperature(atX: clampedX)
             let profileSpeed = curve.speedForTemperature(hoverTemp)
-            let profileY = size.height - (CGFloat(profileSpeed) / 100.0) * size.height
+            let profileY = plane.y(forSpeed: profileSpeed)
 
             var vLine = Path()
             vLine.move(to: CGPoint(x: clampedX, y: 0))
@@ -886,8 +850,9 @@ struct FanSettingsView: View {
         let hover = curveHoverLocation ?? .zero
         let clampedX = max(0, min(size.width, hover.x))
         let clampedY = max(0, min(size.height, hover.y))
-        let hoverTemp = max(20, min(110, (clampedX / max(size.width, 1)) * 90 + 20))
-        let clickSpeed = max(0, min(100, (1 - clampedY / max(size.height, 1)) * 100))
+        let plane = FanCurvePlane(size: size)
+        let hoverTemp = plane.temperature(atX: clampedX)
+        let clickSpeed = plane.speed(atY: clampedY)
         let currentTemp = sensorTemp(for: selectedSensorKey)
         let runningSpeed = fan.averageSpeedPercentage
         let profileSpeed = curve.speedForTemperature(hoverTemp)
@@ -896,19 +861,19 @@ struct FanSettingsView: View {
             HStack(spacing: 5) {
                 ChartLineSwatch(color: .red, dashed: true)
                 Text("Sensor").font(.system(size: 9)).foregroundStyle(.secondary)
-                Text(String(format: "%.0f°C → %.0f%%", currentTemp, runningSpeed))
+                Text("\(TempFormatter.formatWhole(currentTemp)) → \(String(format: "%.0f%%", runningSpeed))")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
             }
             HStack(spacing: 5) {
                 ChartLineSwatch(color: .blue)
                 Text("Profile").font(.system(size: 9)).foregroundStyle(.secondary)
-                Text(String(format: "%.0f°C → %.0f%%", hoverTemp, profileSpeed))
+                Text("\(TempFormatter.formatWhole(hoverTemp)) → \(String(format: "%.0f%%", profileSpeed))")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
             }
             HStack(spacing: 5) {
                 ChartLineSwatch(color: .green)
                 Text("Click").font(.system(size: 9)).foregroundStyle(.secondary)
-                Text(String(format: "%.0f°C → %.0f%%", hoverTemp, clickSpeed))
+                Text("\(TempFormatter.formatWhole(hoverTemp)) → \(String(format: "%.0f%%", clickSpeed))")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
             }
         }
@@ -948,10 +913,9 @@ struct FanSettingsView: View {
     private func handleDrag(value: DragGesture.Value, size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
 
-        let temp = (value.location.x / size.width) * (Self.curveMaxTemp - Self.curveMinTemp) + Self.curveMinTemp
-        let speed = (1 - value.location.y / size.height) * 100
-        let clampedTemp = max(Self.curveMinTemp, min(Self.curveMaxTemp, temp))
-        let clampedSpeed = max(0, min(100, speed))
+        let plane = FanCurvePlane(size: size)
+        let clampedTemp = plane.temperature(atX: value.location.x)
+        let clampedSpeed = plane.speed(atY: value.location.y)
 
         // Pick the grabbed point once, at the start of the gesture, and keep dragging that one —
         // otherwise sweeping past the curve mid-drag would grab or insert points by accident.
@@ -981,7 +945,7 @@ struct FanSettingsView: View {
     /// Clicking on the curve line itself inserts a control point there.
     private func insertPointOnCurve(atTemperature temp: Double, location: CGPoint, size: CGSize) -> UUID? {
         let speedOnCurve = curve.speedForTemperature(temp)
-        let yOnCurve = size.height - (CGFloat(speedOnCurve) / 100.0) * size.height
+        let yOnCurve = FanCurvePlane(size: size).y(forSpeed: speedOnCurve)
         guard abs(yOnCurve - location.y) <= Self.lineGrabRadius else { return nil }
 
         // Don't stack a new point on top of an existing one.
@@ -997,11 +961,7 @@ struct FanSettingsView: View {
     }
 
     private func canvasPosition(for point: CurvePoint, size: CGSize) -> CGPoint {
-        let span = Self.curveMaxTemp - Self.curveMinTemp
-        return CGPoint(
-            x: ((point.temperature - Self.curveMinTemp) / span) * size.width,
-            y: size.height - (CGFloat(point.fanSpeed) / 100.0) * size.height
-        )
+        FanCurvePlane(size: size).position(of: point)
     }
 
     /// Splits the widest temperature gap, so a new point never lands on top of an existing one.

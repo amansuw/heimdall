@@ -99,6 +99,11 @@ enum TempFormatter {
         String(format: "%.0f°", unit.convert(celsius))
     }
 
+    /// Whole degrees with the unit, for sparse labels such as a curve editor's axis ends.
+    static func formatWhole(_ celsius: Double) -> String {
+        String(format: "%.0f%@", unit.convert(celsius), unit.suffix)
+    }
+
     /// Chart axis and tooltip labels. The chart plots Celsius values, but because
     /// the conversion is linear and monotonic, labelling a Celsius position with
     /// its Fahrenheit value is still correct — 40 on the axis really is 104 °F.

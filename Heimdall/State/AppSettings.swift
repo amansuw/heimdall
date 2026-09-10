@@ -32,6 +32,11 @@ enum TemperatureUnit: String, CaseIterable, Identifiable, Sendable {
     func convert(_ celsius: Double) -> Double {
         self == .celsius ? celsius : celsius * 9.0 / 5.0 + 32.0
     }
+
+    /// Inverse of `convert`, for values the user types in their display unit.
+    func toCelsius(_ value: Double) -> Double {
+        self == .celsius ? value : (value - 32.0) * 5.0 / 9.0
+    }
 }
 
 @Observable
