@@ -9,9 +9,15 @@ import Testing
 /// bytes decode has to update this fixture deliberately, in the same commit.
 /// Reports attached to hardware issues can be added as further fixtures.
 ///
-/// Open question the rows make visible: ACPO and ACPW decode (big-endian) to
-/// implausible values that would read sensibly as little-endian, while #KEY only
-/// makes sense big-endian. Integer endianness may differ per key on Apple Silicon.
+/// Integer byte order, which these rows make visible. On this M3 Pro, among integer
+/// keys whose value depends on byte order, the little-endian reading is the
+/// plausible one for most of them (ui16 83 of 97, ui32 76 of 86, si16 16 of 17):
+/// ACPO and ACPW decode to billions big-endian but 33000 / 67800 little-endian,
+/// while #KEY only makes sense big-endian. SMCCodec stays big-endian, which is right
+/// for the Intel keys it writes (FS!). No integer key Heimdall shows or writes on
+/// Apple Silicon is affected: fan keys are ui8/flt, and the one integer sensor
+/// candidate, VBUS, decodes out of the voltage sanity range and is never shown.
+/// Decide byte order per key, with evidence, before displaying an integer sensor.
 let m3ProSMCRows = """
 #KEY ui32 4     00 00 08 F7 2295.0000
 AC-B si8 1     FF -1.0000
