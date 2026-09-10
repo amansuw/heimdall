@@ -4,5 +4,14 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
+	<!--
+	  Hardened runtime stays on; only library validation is relaxed. It admits
+	  libraries signed by Apple or by the app's own Team ID, and an ad-hoc signed
+	  app has no Team ID, so it refused to load Sparkle.framework at all. The
+	  embedded framework is sealed into the app's code signature, so a modified
+	  copy changes the app's cdhash and the root helper refuses the app.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>

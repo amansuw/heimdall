@@ -83,6 +83,11 @@
 		3F31ABF279C4430AAB0E5A86 /* PowerReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F590BF424D6460A88D7A28D /* PowerReader.swift */; };
 		1EB93F4982E1483DB0C2002C /* PowerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A21F30376A482FACCB8674 /* PowerState.swift */; };
 		B3F264A89EA546A5AEACC1C5 /* PowerReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9365B1C71004401CA3A3D3F8 /* PowerReaderTests.swift */; };
+		13C0A9F801C443DD87C46733 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AB83CD6645A140799EA21406 /* Sparkle */; };
+		250890A99D3E4A8CB25107E1 /* UpdateConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F46886C1F44AE3850A1EB3 /* UpdateConfiguration.swift */; };
+		2C78EA3FA71A40A6BC41DADF /* UpdateConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F46886C1F44AE3850A1EB3 /* UpdateConfiguration.swift */; };
+		C5A28BA6068A4BC7B5D8C75D /* UpdaterModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B8D2C1847E64A9498D84182 /* UpdaterModel.swift */; };
+		571A4C3B019D401BAE02EB24 /* UpdateConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECB9EDF6F484958BA96BC64 /* UpdateConfigurationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -156,6 +161,9 @@
 		6F590BF424D6460A88D7A28D /* PowerReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerReader.swift; sourceTree = "<group>"; };
 		43A21F30376A482FACCB8674 /* PowerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerState.swift; sourceTree = "<group>"; };
 		9365B1C71004401CA3A3D3F8 /* PowerReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerReaderTests.swift; sourceTree = "<group>"; };
+		A3F46886C1F44AE3850A1EB3 /* UpdateConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateConfiguration.swift; sourceTree = "<group>"; };
+		5B8D2C1847E64A9498D84182 /* UpdaterModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdaterModel.swift; sourceTree = "<group>"; };
+		AECB9EDF6F484958BA96BC64 /* UpdateConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateConfigurationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -163,6 +171,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				13C0A9F801C443DD87C46733 /* Sparkle in Frameworks */,
 				2D5518B97FA74D478247EBC4 /* IOKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -330,6 +339,8 @@
 			children = (
 				7923F0266409455EB3603AE0 /* Diagnostics.swift */,
 				5A7AE93D7EE0404D8A745B03 /* Formatters.swift */,
+				5B8D2C1847E64A9498D84182 /* UpdaterModel.swift */,
+				A3F46886C1F44AE3850A1EB3 /* UpdateConfiguration.swift */,
 				658DAEC6D79C44A68D9F258F /* RingBuffer.swift */,
 				7F1565C6609A432C93D0F36A /* SMCKit.swift */,
 				D5C8C4CE6D16467E9E7D2AC6 /* SMCCodec.swift */,
@@ -368,6 +379,7 @@
 		541DE245DF22430AB789447D /* HeimdallTests */ = {
 			isa = PBXGroup;
 			children = (
+				AECB9EDF6F484958BA96BC64 /* UpdateConfigurationTests.swift */,
 				9365B1C71004401CA3A3D3F8 /* PowerReaderTests.swift */,
 				B2067D7549FE4BE596405C19 /* CodeIdentityTests.swift */,
 				E8E258F986F340BEB6E6BFC7 /* HelperInstallerTests.swift */,
@@ -398,6 +410,9 @@
 			dependencies = (
 			);
 			name = Heimdall;
+			packageProductDependencies = (
+				AB83CD6645A140799EA21406 /* Sparkle */,
+			);
 			productName = Heimdall;
 			productReference = 137AE2B7DA064BE4898A0CBC /* Heimdall.app */;
 			productType = "com.apple.product-type.application";
@@ -438,6 +453,9 @@
 				Base,
 			);
 			mainGroup = EBFF09ACD17A4B43ACE90C81;
+			packageReferences = (
+				F2D7B7FAB0C64F529FF3C433 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = FE74A2DEB7084117AFBAACF1 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -479,6 +497,8 @@
 				4C1E7A2B9D3F4E5A8B6C7D03 /* AppCommands.swift in Sources */,
 				EF152C3B364D4290B47A5C33 /* MonitorCoordinator.swift in Sources */,
 				D657238AFD034F54B3F8299A /* Formatters.swift in Sources */,
+				C5A28BA6068A4BC7B5D8C75D /* UpdaterModel.swift in Sources */,
+				250890A99D3E4A8CB25107E1 /* UpdateConfiguration.swift in Sources */,
 				CFC8A636BBA44EF286CBE572 /* RingBuffer.swift in Sources */,
 				47D05CEC253E4CC281272471 /* SMCKit.swift in Sources */,
 				75675BCD15264B0A9279DE63 /* SMCCodec.swift in Sources */,
@@ -532,6 +552,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				571A4C3B019D401BAE02EB24 /* UpdateConfigurationTests.swift in Sources */,
+				2C78EA3FA71A40A6BC41DADF /* UpdateConfiguration.swift in Sources */,
 				B3F264A89EA546A5AEACC1C5 /* PowerReaderTests.swift in Sources */,
 				3F31ABF279C4430AAB0E5A86 /* PowerReader.swift in Sources */,
 				8039F25E03BA48EAA130352E /* CodeIdentity.swift in Sources */,
@@ -578,6 +600,7 @@
 				);
 				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.heimdall.app;
+				SPARKLE_PUBLIC_KEY = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
@@ -603,6 +626,7 @@
 				);
 				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.heimdall.app;
+				SPARKLE_PUBLIC_KEY = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
@@ -765,6 +789,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F2D7B7FAB0C64F529FF3C433 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AB83CD6645A140799EA21406 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F2D7B7FAB0C64F529FF3C433 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2AEA0BF4F0814FDA8C20344B /* Project object */;
 }

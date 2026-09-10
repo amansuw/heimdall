@@ -37,6 +37,10 @@ cask "heimdall" do
 
   depends_on macos: ">= :sequoia"
 
+  # Heimdall installs its own updates with Sparkle, so `brew upgrade` leaves it
+  # alone unless run with --greedy.
+  auto_updates true
+
   app "Heimdall.app"
 
   # `brew uninstall` path: stop the app and the root helper, then remove the

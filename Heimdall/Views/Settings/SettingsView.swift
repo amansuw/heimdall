@@ -3,9 +3,11 @@ import AppKit
 
 struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
+    @Environment(UpdaterModel.self) private var updater
 
     var body: some View {
         @Bindable var settings = settings
+        @Bindable var updater = updater
 
         TabView {
             Form {
@@ -34,6 +36,19 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                Section {
+                    if updater.isAvailable {
+                        Toggle("Check for updates automatically", isOn: $updater.automaticallyChecksForUpdates)
+                        Button("Check for Updates…") { updater.checkForUpdates() }
+                    } else {
+                        Text("In-app updates are off in this build. If you built Heimdall from source, pull and rebuild; with Homebrew, run brew upgrade.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Updates")
+                }
             }
             .formStyle(.grouped)
             .tabItem { Label("General", systemImage: "gearshape") }
@@ -44,7 +59,7 @@ struct SettingsView: View {
             DiagnosticsSettings()
                 .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
         }
-        .frame(width: 460, height: 320)
+        .frame(width: 460, height: 420)
     }
 }
 

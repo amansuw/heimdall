@@ -16,8 +16,13 @@ struct HeimdallApp: App {
                 .environment(AppSettings.shared)
                 .environment(appDelegate.fanState)
                 .environment(appDelegate.commands)
+                .environment(appDelegate.updater)
         }
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { appDelegate.updater.checkForUpdates() }
+                    .disabled(!appDelegate.updater.isAvailable)
+            }
             // Without these the standard Edit shortcuts do not exist, so text fields
             // in the curve editor and the rename dialog had no Cmd-A/C/V/Z.
             TextEditingCommands()
@@ -51,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindowController: NSWindowController?
 
     let settings = AppSettings.shared
+    let updater = UpdaterModel()
 
     /// Handed to views through the environment in place of NotificationCenter posts.
     lazy var commands = AppCommands(
