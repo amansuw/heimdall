@@ -32,6 +32,7 @@
 		714267A05F0642B98BF3BE65 /* RAMReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76E6688C3AA43EE98B1D341 /* RAMReader.swift */; };
 		71AB87B592844B678AEEF709 /* NetworkReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DD3079AFBF840F18B2BAB42 /* NetworkReader.swift */; };
 		7227ABB1F01F4AB2A9AF4C2A /* CanvasChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3847812441746F9B417CF1B /* CanvasChart.swift */; };
+		4C1E7A2B9D3F4E5A8B6C7D01 /* FanCurvePlane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1E7A2B9D3F4E5A8B6C7D02 /* FanCurvePlane.swift */; };
 		76A62A9546D547D4B2E3C77E /* NetworkState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7DCE407C96D44559BB943A4 /* NetworkState.swift */; };
 		773B81DD26534E02B4E10C97 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D711043B142F41DC807D7793 /* ContentView.swift */; };
 		801BF88100A0467D924CEEDB /* RAMState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4550B8AA9447B9A18A1B03 /* RAMState.swift */; };
@@ -102,6 +103,7 @@
 		BCE41FCFF6574ACD9750E202 /* DiskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskView.swift; sourceTree = "<group>"; };
 		C2CE61F051C240399A197D5F /* BatteryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryView.swift; sourceTree = "<group>"; };
 		C3847812441746F9B417CF1B /* CanvasChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasChart.swift; sourceTree = "<group>"; };
+		4C1E7A2B9D3F4E5A8B6C7D02 /* FanCurvePlane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanCurvePlane.swift; sourceTree = "<group>"; };
 		CA28AF4ED12845358B89271F /* SensorReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorReader.swift; sourceTree = "<group>"; };
 		D009BBD859BB4E98A7788152 /* SensorDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorDefinitions.swift; sourceTree = "<group>"; };
 		D6FDB9987BCA4931B6C85126 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
@@ -150,6 +152,7 @@
 			isa = PBXGroup;
 			children = (
 				C3847812441746F9B417CF1B /* CanvasChart.swift */,
+				4C1E7A2B9D3F4E5A8B6C7D02 /* FanCurvePlane.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -417,6 +420,7 @@
 				AEA117BF416644DD99E56AA9 /* SensorListView.swift in Sources */,
 				0CBCAD0F04CF4397B4B12113 /* PopoverView.swift in Sources */,
 				7227ABB1F01F4AB2A9AF4C2A /* CanvasChart.swift in Sources */,
+				4C1E7A2B9D3F4E5A8B6C7D01 /* FanCurvePlane.swift in Sources */,
 				EADD4B88B1CB40999B4939C7 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

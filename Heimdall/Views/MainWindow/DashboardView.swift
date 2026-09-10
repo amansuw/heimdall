@@ -143,9 +143,11 @@ struct DashboardView: View {
                                 .frame(minWidth: 72, alignment: .leading)
 
                                 if let c = latest.curve {
-                                    DashboardCurvePreview(curve: c)
+                                    FanCurvePreview(curve: c)
                                         .frame(maxWidth: .infinity)
                                         .frame(height: 48)
+                                        .background(Color.secondary.opacity(0.06))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
                                 } else {
                                     Spacer(minLength: 0)
                                 }
@@ -209,38 +211,6 @@ struct DashboardView: View {
         }
         .buttonStyle(.plain)
         .disabled(fan.isYielding)
-    }
-}
-
-struct DashboardCurvePreview: View {
-    let curve: FanCurve
-
-    var body: some View {
-        Canvas { context, size in
-            let sorted = curve.sortedPoints
-            guard sorted.count >= 2 else { return }
-
-            var path = Path()
-            for (i, point) in sorted.enumerated() {
-                let x = ((point.temperature - 20) / 90) * size.width
-                let y = size.height - (CGFloat(point.fanSpeed) / 100.0) * size.height
-                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                else { path.addLine(to: CGPoint(x: x, y: y)) }
-            }
-
-            var fillPath = path
-            if let last = sorted.last {
-                fillPath.addLine(to: CGPoint(x: ((last.temperature - 20) / 90) * size.width, y: size.height))
-            }
-            if let first = sorted.first {
-                fillPath.addLine(to: CGPoint(x: ((first.temperature - 20) / 90) * size.width, y: size.height))
-            }
-            fillPath.closeSubpath()
-            context.fill(fillPath, with: .color(.blue.opacity(0.15)))
-            context.stroke(path, with: .color(.blue.opacity(0.75)), lineWidth: 1.5)
-        }
-        .background(Color.secondary.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
