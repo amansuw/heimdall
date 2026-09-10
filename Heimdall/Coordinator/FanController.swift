@@ -1,37 +1,49 @@
 import Foundation
 
-class FanController {
-    weak var fanState: FanState?
-    weak var sensorState: SensorState?
+/// Drives the fans, through the root helper when it is connected.
+///
+/// Threading — the unchecked Sendable conformance rests on this confinement:
+/// - `@MainActor` members own everything the UI sees (`fanState`, `sensorState`)
+///   and the curve bookkeeping. Control requests arrive there.
+/// - `helperQueue` owns the helper connection (`helperRunning`, `sockFd`,
+///   `rspBuffer`), force-test mode, the discovered fan indices and the factory
+///   minimums. Every SMC write and privileged read runs on it, so the ~2.4 s write
+///   sequences never block the main thread or the monitor's timers.
+/// - `applyLock` guards the handoff state both sides touch: pending fan speeds and
+///   the coalescing generation.
+final class FanController: @unchecked Sendable {
+    @MainActor weak var fanState: FanState?
+    @MainActor weak var sensorState: SensorState?
 
     private let smc = SMCKit.shared
     private let helperQueue = DispatchQueue(label: "com.heimdall.fan", qos: .userInitiated)
 
+    // MARK: helperQueue only
+
     private var helperRunning = false
-    /// One authenticated stream socket to the root helper (was a pair of /tmp FIFOs).
+    /// One authenticated stream socket to the root helper.
     private var sockFd: Int32 = -1
     private var rspBuffer = Data()
     private var forceTestModeActive = false
 
-    private var curveFansForced = false
-    private var lastCurveAboveZero: Date = .distantPast
-    private let curveModeTransitionCooldown: TimeInterval = 30
-
-    /// Written from both the monitor's tick queue and helperQueue, drained on the
-    /// main thread — so it needs the same lock as the coalescing state.
-    private var pendingFanSpeeds: [(Int, Double)]?
-
-    /// Fan indices captured at discovery. The teardown path uses these instead of
-    /// reading fanState, which is owned by the main thread.
+    /// Fan indices captured at discovery, in the same order as `fanState.fans`.
     private var fanIndices: [Int] = []
 
     /// Lowest F<i>Mn ever observed per fan — see recordFactoryMinimum.
     private var factoryMinimums: [Int: Double] = [:]
     private static let factoryMinimumsKey = "heimdall.factoryFanMinimums"
 
-    /// Guards the coalescing state below, which is touched from both the caller's thread and
-    /// `helperQueue`.
+    // MARK: Main actor only
+
+    @MainActor private var curveFansForced = false
+    @MainActor private var lastCurveAboveZero: Date = .distantPast
+    private let curveModeTransitionCooldown: TimeInterval = 30
+
+    // MARK: Guarded by applyLock
+
     private let applyLock = NSLock()
+    /// Speeds read on helperQueue, waiting for the main thread to publish them.
+    private var pendingFanSpeeds: [(Int, Double)]?
     /// Monotonic id for the newest requested target. A queued write block whose generation is
     /// stale has been superseded and exits without touching the SMC.
     private var applyGeneration: UInt64 = 0
@@ -45,43 +57,44 @@ class FanController {
     /// Re-apply an unchanged target at least this often, in case the SMC drifted back.
     private let applyRefreshInterval: TimeInterval = 60
 
-    // MARK: - Init
+    // MARK: - Discovery
 
+    /// Reads the fan inventory on helperQueue, which owns it, and publishes it.
     func discoverFans() {
-        loadFactoryMinimums()
-
-        let numFans = smc.getNumberOfFans()
-        var discovered: [FanInfo] = []
-        var indices: [Int] = []
-
-        for i in 0..<numFans {
-            let current = smc.getFanCurrentSpeed(fanIndex: i)
-            let liveMin = smc.getFanMinSpeed(fanIndex: i)
-            let max = smc.getFanMaxSpeed(fanIndex: i)
-            let target = smc.getFanTargetSpeed(fanIndex: i)
-
-            indices.append(i)
-            discovered.append(FanInfo(
-                id: i, index: i,
-                currentSpeed: current ?? 0,
-                minSpeed: recordFactoryMinimum(fanIndex: i, observed: liveMin),
-                maxSpeed: max ?? 6500, targetSpeed: target ?? (current ?? 0),
-                isManual: false
-            ))
-        }
-        fanIndices = indices
-
-        // Probing write access performs an SMC write; keep it off the main thread.
-        let directWrite = smc.testWriteAccess()
-
-        DispatchQueue.main.async { [weak self] in
+        helperQueue.async { [weak self] in
             guard let self else { return }
-            self.fanState?.fans = discovered
-            self.fanState?.hasWriteAccess = (self.fanState?.hasWriteAccess ?? false) || directWrite
+            self.loadFactoryMinimums()
+
+            let numFans = max(self.smc.getNumberOfFans(), 0)
+            var discovered: [FanInfo] = []
+            for i in 0..<numFans {
+                let current = self.smc.getFanCurrentSpeed(fanIndex: i)
+                let liveMin = self.smc.getFanMinSpeed(fanIndex: i)
+                let max = self.smc.getFanMaxSpeed(fanIndex: i)
+                let target = self.smc.getFanTargetSpeed(fanIndex: i)
+
+                discovered.append(FanInfo(
+                    id: i, index: i,
+                    currentSpeed: current ?? 0,
+                    minSpeed: self.recordFactoryMinimum(fanIndex: i, observed: liveMin),
+                    maxSpeed: max ?? 6500, targetSpeed: target ?? (current ?? 0),
+                    isManual: false
+                ))
+            }
+            self.fanIndices = Array(0..<numFans)
+
+            // Probing write access performs an SMC write.
+            let directWrite = self.smc.testWriteAccess()
+            let fans = discovered
+
+            DispatchQueue.main.async {
+                self.fanState?.fans = fans
+                self.fanState?.hasWriteAccess = (self.fanState?.hasWriteAccess ?? false) || directWrite
+            }
         }
     }
 
-    // MARK: - Factory Fan Minimums
+    // MARK: - Factory Fan Minimums (helperQueue)
 
     // Forcing a fan writes F<i>Mn, and the SMC keeps that value after the app exits.
     // Reading F<i>Mn at the next launch therefore returns the *forced* speed and treats
@@ -133,12 +146,11 @@ class FanController {
 
     // MARK: - Daemon Connection
 
+    @MainActor
     func requestAdminAccess() {
-        guard !(fanState?.isRequestingAccess ?? true) else { return }
-        DispatchQueue.main.async {
-            self.fanState?.isRequestingAccess = true
-            self.fanState?.accessError = nil
-        }
+        guard let fanState, !fanState.isRequestingAccess else { return }
+        fanState.isRequestingAccess = true
+        fanState.accessError = nil
 
         helperQueue.async { [weak self] in
             guard let self else { return }
@@ -217,11 +229,12 @@ class FanController {
         for i in 0..<numFans {
             if !setFanModeWrite(fanIndex: i, mode: .automatic) { allOk = false }
         }
+        let succeeded = allOk
 
         DispatchQueue.main.async { [weak self] in
-            self?.fanState?.hasWriteAccess = allOk
+            self?.fanState?.hasWriteAccess = succeeded
             self?.fanState?.isRequestingAccess = false
-            self?.fanState?.accessError = allOk
+            self?.fanState?.accessError = succeeded
                 ? nil
                 : "The helper is running but could not change the fans. Its log is at \(SMCDaemon.logPath)."
         }
@@ -248,9 +261,8 @@ class FanController {
     /// first drops these writes onto the unprivileged path, where they cannot succeed
     /// — which is why quitting used to leave fans forced.
     func shutdown() {
-        let indices = fanIndices
         helperQueue.sync {
-            for index in indices {
+            for index in self.fanIndices {
                 _ = self.setFanModeWrite(fanIndex: index, mode: .automatic)
                 self.restoreFactoryMinimum(fanIndex: index)
             }
@@ -263,7 +275,7 @@ class FanController {
         }
     }
 
-    // MARK: - FIFO Communication
+    // MARK: - Helper Protocol (helperQueue)
 
     private func sendCommand(_ command: String, timeout: TimeInterval = 5) -> String? {
         guard helperRunning, sockFd >= 0 else { return nil }
@@ -316,7 +328,7 @@ class FanController {
         return smc.writeKey(key, bytes: bytes)
     }
 
-    // MARK: - thermalmonitord Unlock
+    // MARK: - thermalmonitord Unlock (helperQueue)
 
     private func ensureForceTestMode() {
         guard !forceTestModeActive else { return }
@@ -350,7 +362,7 @@ class FanController {
         forceTestModeActive = false
     }
 
-    // MARK: - Fan Mode/Speed Writes
+    // MARK: - Fan Mode/Speed Writes (helperQueue)
 
     private func setFanModeWrite(fanIndex: Int, mode: FanMode) -> Bool {
         if mode == .forced { ensureForceTestMode() }
@@ -373,7 +385,6 @@ class FanController {
         return success
     }
 
-
     private func setFanTargetWrite(fanIndex: Int, speed: Double) -> Bool {
         var success = false
 
@@ -393,52 +404,48 @@ class FanController {
         return success
     }
 
-    // MARK: - Public Control API
+    // MARK: - Readings
 
+    /// Called from the monitor's fast queue. The reads run on helperQueue, which owns
+    /// the fan list and the helper connection; `applyReadings` publishes them.
     func readFanSpeeds() {
-        guard let fans = fanState?.fans, !fans.isEmpty else { return }
-
-        if helperRunning {
-            helperQueue.async { [weak self] in
-                guard let self else { return }
-                var speeds = [(Int, Double)]()
-                for i in 0..<fans.count {
-                    if let speed = self.privilegedReadDouble(key: "F\(fans[i].index)Ac") {
-                        speeds.append((i, speed))
-                    }
-                }
-                self.applyLock.withLock { self.pendingFanSpeeds = speeds }
+        helperQueue.async { [weak self] in
+            guard let self, !self.fanIndices.isEmpty else { return }
+            var speeds: [(Int, Double)] = []
+            for (position, index) in self.fanIndices.enumerated() {
+                let speed = self.helperRunning
+                    ? self.privilegedReadDouble(key: "F\(index)Ac")
+                    : self.smc.getFanCurrentSpeed(fanIndex: index)
+                if let speed { speeds.append((position, speed)) }
             }
-        } else {
-            var speeds = [(Int, Double)]()
-            for i in 0..<fans.count {
-                if let current = smc.getFanCurrentSpeed(fanIndex: fans[i].index) {
-                    speeds.append((i, current))
-                }
-            }
-            applyLock.withLock { pendingFanSpeeds = speeds }
+            self.applyLock.withLock { self.pendingFanSpeeds = speeds }
         }
-
-        reevaluateCurveIfNeeded()
     }
 
+    /// Publishes the latest fan speeds and lets curve control react to the sensors
+    /// the same tick has just published.
+    @MainActor
     func applyReadings() {
         let speeds: [(Int, Double)]? = applyLock.withLock {
             defer { pendingFanSpeeds = nil }
             return pendingFanSpeeds
         }
-        guard let speeds else { return }
-        for (i, speed) in speeds {
-            if i < (fanState?.fans.count ?? 0) {
-                fanState?.fans[i].currentSpeed = speed
+        if let speeds, let fanState {
+            for (i, speed) in speeds where i < fanState.fans.count {
+                fanState.fans[i].currentSpeed = speed
             }
         }
+        reevaluateCurveIfNeeded()
     }
 
+    // MARK: - Public Control API
+
+    @MainActor
     func setAllFansAuto() {
         resetToAutomatic()
     }
 
+    @MainActor
     func setAllFansSpeed(percentage: Double) {
         forceFans(toPercent: percentage, label: percentage == 100 ? "Max" : "\(Int(percentage))%")
     }
@@ -446,59 +453,55 @@ class FanController {
     // MARK: - Coalesced Forced Writes
 
     private func nextApplyGeneration() -> UInt64 {
-        applyLock.lock()
-        defer { applyLock.unlock() }
-        applyGeneration &+= 1
-        return applyGeneration
+        applyLock.withLock {
+            applyGeneration &+= 1
+            return applyGeneration
+        }
     }
 
     private func isCurrentGeneration(_ generation: UInt64) -> Bool {
-        applyLock.lock()
-        defer { applyLock.unlock() }
-        return generation == applyGeneration
+        applyLock.withLock { generation == applyGeneration }
     }
 
     private func markApplied(percentage: Double) {
-        applyLock.lock()
-        lastAppliedPercentage = percentage
-        lastAppliedAt = Date()
-        applyLock.unlock()
+        applyLock.withLock {
+            lastAppliedPercentage = percentage
+            lastAppliedAt = Date()
+        }
     }
 
     /// Forgets the last applied target so the next request always reaches the SMC.
     private func invalidateLastApplied() {
-        applyLock.lock()
-        lastAppliedPercentage = nil
-        lastAppliedAt = .distantPast
-        applyLock.unlock()
+        applyLock.withLock {
+            lastAppliedPercentage = nil
+            lastAppliedAt = .distantPast
+        }
     }
 
     /// True when `percentage` is close enough to what we already wrote — and written recently
     /// enough — that repeating the ~2.4s write sequence would be pure churn.
     private func shouldSkipApply(percentage: Double, epsilon: Double) -> Bool {
-        applyLock.lock()
-        defer { applyLock.unlock() }
-        guard let last = lastAppliedPercentage else { return false }
-        guard Date().timeIntervalSince(lastAppliedAt) < applyRefreshInterval else { return false }
-        return abs(last - percentage) < epsilon
+        applyLock.withLock {
+            guard let last = lastAppliedPercentage else { return false }
+            guard Date().timeIntervalSince(lastAppliedAt) < applyRefreshInterval else { return false }
+            return abs(last - percentage) < epsilon
+        }
     }
 
     /// Single implementation of the forced-speed write sequence used by manual, preset and
     /// curve control. Requests are coalesced: only the newest one performs SMC writes, so a
     /// slider drag no longer leaves the fans chasing dozens of stale setpoints.
+    @MainActor
     private func forceFans(toPercent percentage: Double, label: String? = nil) {
-        guard let fans = fanState?.fans, !fans.isEmpty else { return }
-
+        guard let fanState, !fanState.fans.isEmpty else { return }
+        let fans = fanState.fans
         let targets = fans.map { $0.minSpeed + ($0.maxSpeed - $0.minSpeed) * (percentage / 100.0) }
 
         // Reflect the request in the UI immediately, whether or not the writes are skipped.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let count = self.fanState?.fans.count else { return }
-            for i in 0..<min(count, targets.count) {
-                self.fanState?.fans[i].targetSpeed = targets[i]
-                self.fanState?.fans[i].isManual = true
-                if let label { self.fanState?.fans[i].selectedSpeedLabel = label }
-            }
+        for i in 0..<min(fanState.fans.count, targets.count) {
+            fanState.fans[i].targetSpeed = targets[i]
+            fanState.fans[i].isManual = true
+            if let label { fanState.fans[i].selectedSpeedLabel = label }
         }
 
         let generation = nextApplyGeneration()
@@ -528,6 +531,7 @@ class FanController {
         }
     }
 
+    @MainActor
     func setControlMode(_ mode: FanControlMode) {
         fanState?.controlMode = mode
         // A mode switch must always reach the SMC, even if the target percentage is unchanged.
@@ -537,33 +541,35 @@ class FanController {
             fanState?.activeCurve = nil
             curveFansForced = false
             lastCurveAboveZero = .distantPast
-            DispatchQueue.main.async { self.fanState?.isCurveCooldownActive = false }
+            fanState?.isCurveCooldownActive = false
             resetToAutomatic()
             fanState?.isControlActive = false
         case .manual:
             fanState?.activeCurve = nil
             curveFansForced = false
-            DispatchQueue.main.async { self.fanState?.isCurveCooldownActive = false }
+            fanState?.isCurveCooldownActive = false
             fanState?.isControlActive = true
             applyManualSpeed()
         case .curve:
             curveFansForced = false
-            DispatchQueue.main.async { self.fanState?.isCurveCooldownActive = false }
+            fanState?.isCurveCooldownActive = false
             fanState?.isControlActive = true
         }
     }
 
+    @MainActor
     func applyManualSpeed() {
         forceFans(toPercent: fanState?.manualSpeedPercentage ?? 50.0)
     }
 
+    @MainActor
     func applyFanCurveSpeed(temperature: Double, curve: FanCurve, allowImmediateOff: Bool = false) {
         let percentage = curve.speedForTemperature(temperature)
         let now = Date()
 
         if percentage > 0 {
             lastCurveAboveZero = now
-            DispatchQueue.main.async { self.fanState?.isCurveCooldownActive = false }
+            fanState?.isCurveCooldownActive = false
         }
 
         if percentage <= 0 {
@@ -572,26 +578,22 @@ class FanController {
                 if allowImmediateOff || sinceLastAbove >= curveModeTransitionCooldown {
                     curveFansForced = false
                     resetToAutomatic()
-                    DispatchQueue.main.async {
-                        self.fanState?.controlMode = .curve
-                        self.fanState?.isCurveCooldownActive = false
-                    }
+                    fanState?.controlMode = .curve
+                    fanState?.isCurveCooldownActive = false
                 } else {
-                    DispatchQueue.main.async { self.fanState?.isCurveCooldownActive = true }
+                    fanState?.isCurveCooldownActive = true
                 }
             }
             return
         }
 
-        if !curveFansForced { curveFansForced = true }
-        DispatchQueue.main.async { self.fanState?.isCurveCooldownActive = false }
+        curveFansForced = true
+        fanState?.isCurveCooldownActive = false
 
         forceFans(toPercent: percentage)
     }
 
     private func resetToAutomatic() {
-        let indices = fanIndices
-
         // Fans are no longer forced, so the next forced request must not be deduped away.
         invalidateLastApplied()
         _ = nextApplyGeneration()
@@ -599,7 +601,7 @@ class FanController {
         helperQueue.async { [weak self] in
             guard let self else { return }
             self.disableForceTestMode()
-            for index in indices {
+            for index in self.fanIndices {
                 _ = self.setFanModeWrite(fanIndex: index, mode: .automatic)
                 self.restoreFactoryMinimum(fanIndex: index)
             }
@@ -612,6 +614,7 @@ class FanController {
         }
     }
 
+    @MainActor
     private func reevaluateCurveIfNeeded() {
         guard fanState?.controlMode == .curve,
               let curve = fanState?.activeCurve else { return }
@@ -630,6 +633,7 @@ class FanController {
         applyFanCurveSpeed(temperature: temp, curve: curve)
     }
 
+    @MainActor
     private func curveSensorTemp(for key: String) -> Double {
         guard let sensorState else { return 0 }
         switch key {

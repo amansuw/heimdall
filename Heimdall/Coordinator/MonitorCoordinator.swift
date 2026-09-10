@@ -1,18 +1,25 @@
 import Foundation
 import AppKit
 
-class MonitorCoordinator {
-    // State objects (owned by AppDelegate, passed here)
-    var cpuState: CPUState?
-    var gpuState: GPUState?
-    var ramState: RAMState?
-    var diskState: DiskState?
-    var networkState: NetworkState?
-    var batteryState: BatteryState?
-    var sensorState: SensorState?
-    var fanState: FanState?
+/// Samples every reader on two timers and publishes the results to the main-actor
+/// state objects.
+///
+/// Threading — the unchecked Sendable conformance rests on this confinement:
+/// readers run only on `fastQueue` or `slowQueue`; state objects are touched only
+/// on the main actor; the polling flags and timer sources that both the main thread
+/// and the timer queues use live behind `pollingLock`.
+final class MonitorCoordinator: @unchecked Sendable {
+    // State objects (owned by AppDelegate, set before start()).
+    @MainActor var cpuState: CPUState?
+    @MainActor var gpuState: GPUState?
+    @MainActor var ramState: RAMState?
+    @MainActor var diskState: DiskState?
+    @MainActor var networkState: NetworkState?
+    @MainActor var batteryState: BatteryState?
+    @MainActor var sensorState: SensorState?
+    @MainActor var processHistory: ProcessHistory?
 
-    // Readers (owned here)
+    // Readers — each used only from the queue that samples it.
     let cpuReader = CPUReader()
     let gpuReader = GPUReader()
     let ramReader = RAMReader()
@@ -21,41 +28,56 @@ class MonitorCoordinator {
     let batteryReader = BatteryReader()
     let sensorReader = SensorReader()
     let processReader = ProcessReader()
-    var processHistory: ProcessHistory!
 
-    // Fan controller
-    var fanController: FanController?
+    let fanController: FanController
 
     // Dispatch
     private let fastQueue = DispatchQueue(label: "com.heimdall.monitor.fast", qos: .utility)
     private let slowQueue = DispatchQueue(label: "com.heimdall.monitor.slow", qos: .utility)
-    private var fastSource: DispatchSourceTimer?
-    private var slowSource: DispatchSourceTimer?
+    /// slowQueue only.
     private var slowTickCount = 0
-    private var boostedPollingUntil: Date?
 
-    // Visibility-aware polling — menu-bar-only uses a deep low-power path
-    private var isWindowVisible = false
-    private var isPopoverVisible = false
-    private var sleepObserver: Any?
-    private var wakeObserver: Any?
-    private var isSleeping = false
+    /// What the main thread and the timer queues both read or write.
+    private struct Polling {
+        var fastSource: DispatchSourceTimer?
+        var slowSource: DispatchSourceTimer?
+        var boostedUntil: Date?
+        // Visibility-aware polling — menu-bar-only uses a deep low-power path.
+        var isWindowVisible = false
+        var isPopoverVisible = false
+        var isSleeping = false
 
-    private var isUIActive: Bool { isWindowVisible || isPopoverVisible }
+        var isUIActive: Bool { isWindowVisible || isPopoverVisible }
+    }
+    private let pollingLock = NSLock()
+    private var polling = Polling()
 
+    @MainActor private var sleepObserver: Any?
+    @MainActor private var wakeObserver: Any?
+
+    init(fanController: FanController) {
+        self.fanController = fanController
+    }
+
+    @MainActor
     func start() {
-        // Discover sensors on first launch
+        // Apply CPU topology
         fastQueue.async { [weak self] in
-            self?.sensorReader.discoverSensors()
+            guard let self else { return }
+            let total = self.cpuReader.totalCores
+            let clusters = self.cpuReader.clusters
             DispatchQueue.main.async {
-                self?.sensorState?.isDiscovering = false
+                self.cpuState?.applyTopology(total: total, clusters: clusters)
             }
         }
 
-        // Apply CPU topology
-        DispatchQueue.main.async { [weak self] in
+        // Discover sensors on first launch
+        fastQueue.async { [weak self] in
             guard let self else { return }
-            self.cpuState?.applyTopology(total: self.cpuReader.totalCores, clusters: self.cpuReader.clusters)
+            self.sensorReader.discoverSensors()
+            DispatchQueue.main.async {
+                self.sensorState?.isDiscovering = false
+            }
         }
 
         // Fetch DNS servers once
@@ -67,50 +89,61 @@ class MonitorCoordinator {
             }
         }
 
+        // @Sendable is load-bearing. setEventHandler does not require it, so a closure
+        // written in this main-actor method would inherit main-actor isolation, and
+        // Swift 6 traps the moment the timer fires on its own queue.
         let fast = DispatchSource.makeTimerSource(queue: fastQueue)
-        fast.schedule(deadline: .now(), repeating: fastInterval, leeway: .milliseconds(500))
-        fast.setEventHandler { [weak self] in self?.fastTick() }
-        fast.resume()
-        fastSource = fast
-
+        fast.setEventHandler { @Sendable [weak self] in self?.fastTick() }
         let slow = DispatchSource.makeTimerSource(queue: slowQueue)
-        slow.schedule(deadline: .now() + 2.0, repeating: slowInterval, leeway: .seconds(2))
-        slow.setEventHandler { [weak self] in self?.slowTick() }
+        slow.setEventHandler { @Sendable [weak self] in self?.slowTick() }
+
+        pollingLock.withLock {
+            polling.fastSource = fast
+            polling.slowSource = slow
+            fast.schedule(deadline: .now(), repeating: Self.fastInterval(for: polling), leeway: .milliseconds(500))
+            slow.schedule(deadline: .now() + 2.0, repeating: Self.slowInterval(for: polling), leeway: .seconds(2))
+        }
+        fast.resume()
         slow.resume()
-        slowSource = slow
 
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.isSleeping = true
+            self?.setSleeping(true)
         }
 
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.isSleeping = false
+            self?.setSleeping(false)
         }
     }
 
+    @MainActor
     func stop() {
-        fastSource?.cancel()
-        fastSource = nil
-        slowSource?.cancel()
-        slowSource = nil
-
-        if let obs = sleepObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(obs)
+        pollingLock.withLock {
+            polling.fastSource?.cancel()
+            polling.fastSource = nil
+            polling.slowSource?.cancel()
+            polling.slowSource = nil
         }
-        if let obs = wakeObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(obs)
+
+        if let sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
+        }
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
         }
     }
 
     func setWindowVisible(_ visible: Bool) {
-        guard isWindowVisible != visible else { return }
-        isWindowVisible = visible
-        updatePollingRate()
-        if visible {
+        let opened = pollingLock.withLock { () -> Bool in
+            guard polling.isWindowVisible != visible else { return false }
+            polling.isWindowVisible = visible
+            reschedule()
+            return visible
+        }
+        if opened {
             // Catch up immediately when the main window opens.
             fastQueue.async { [weak self] in self?.fastTick() }
             slowQueue.async { [weak self] in self?.slowTick() }
@@ -118,59 +151,66 @@ class MonitorCoordinator {
     }
 
     func setPopoverVisible(_ visible: Bool) {
-        guard isPopoverVisible != visible else { return }
-        isPopoverVisible = visible
-        updatePollingRate()
-        if visible {
+        let opened = pollingLock.withLock { () -> Bool in
+            guard polling.isPopoverVisible != visible else { return false }
+            polling.isPopoverVisible = visible
+            reschedule()
+            return visible
+        }
+        if opened {
             fastQueue.async { [weak self] in self?.fastTick() }
         }
     }
 
     func boostFastPollingTemporarily(duration: TimeInterval = 5) {
-        boostedPollingUntil = Date().addingTimeInterval(duration)
-        updatePollingRate()
+        pollingLock.withLock {
+            polling.boostedUntil = Date().addingTimeInterval(duration)
+            reschedule()
+        }
 
         fastQueue.asyncAfter(deadline: .now() + duration + 0.1) { [weak self] in
             guard let self else { return }
-            if let until = self.boostedPollingUntil, until <= Date() {
-                self.boostedPollingUntil = nil
-                self.updatePollingRate()
+            self.pollingLock.withLock {
+                if let until = self.polling.boostedUntil, until <= Date() {
+                    self.polling.boostedUntil = nil
+                    self.reschedule()
+                }
             }
         }
+    }
+
+    private func setSleeping(_ sleeping: Bool) {
+        pollingLock.withLock { polling.isSleeping = sleeping }
     }
 
     // MARK: - Polling Rate
 
     /// UI open: 2s. Fan boost: 1s. Menu-bar only: 30s (keeps chart history filled).
-    private var fastInterval: TimeInterval {
-        if let until = boostedPollingUntil, until > Date() {
+    private static func fastInterval(for polling: Polling) -> TimeInterval {
+        if let until = polling.boostedUntil, until > Date() {
             return 1.0
         }
-        if isUIActive { return 2.0 }
+        if polling.isUIActive { return 2.0 }
         // A menu bar readout that only moves every 30s reads as broken, so opting
         // into one trades a little idle power for a usable refresh rate.
-        return AppSettings.shared.menuBarDisplay == .iconOnly ? 30.0 : 10.0
+        return AppSettings.persistedMenuBarDisplay == .iconOnly ? 30.0 : 10.0
     }
 
     /// UI open: 10s (processes/nettop). Menu-bar only: 60s (battery only, no nettop).
-    private var slowInterval: TimeInterval {
-        isUIActive ? 10.0 : 60.0
+    private static func slowInterval(for polling: Polling) -> TimeInterval {
+        polling.isUIActive ? 10.0 : 60.0
     }
 
-    private var isBoostedPollingActive: Bool {
-        guard let until = boostedPollingUntil else { return false }
-        return until > Date()
-    }
-
-    private func updatePollingRate() {
-        fastSource?.schedule(deadline: .now(), repeating: fastInterval, leeway: .milliseconds(500))
-        slowSource?.schedule(deadline: .now() + 0.5, repeating: slowInterval, leeway: .seconds(2))
+    /// Call with pollingLock held.
+    private func reschedule() {
+        polling.fastSource?.schedule(deadline: .now(), repeating: Self.fastInterval(for: polling), leeway: .milliseconds(500))
+        polling.slowSource?.schedule(deadline: .now() + 0.5, repeating: Self.slowInterval(for: polling), leeway: .seconds(2))
     }
 
     // MARK: - Fast Tick
 
     private func fastTick() {
-        guard !isSleeping else { return }
+        guard !pollingLock.withLock({ polling.isSleeping }) else { return }
 
         // One sample set at every cadence: since sensors stopped being thinned to
         // every 5th tick, the background and visible paths were identical. What
@@ -182,7 +222,7 @@ class MonitorCoordinator {
         let netResult = networkReader.read()
         let diskIOResult = diskReader.readIO()
         let sensorResult = sensorReader.read()
-        fanController?.readFanSpeeds()
+        fanController.readFanSpeeds()
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -192,17 +232,17 @@ class MonitorCoordinator {
             self.networkState?.apply(netResult, recordHistory: true)
             self.diskState?.applyIO(diskIOResult, recordHistory: true)
             if let sensorResult { self.sensorState?.apply(sensorResult, recordHistory: true) }
-            self.fanController?.applyReadings()
+            self.fanController.applyReadings()
         }
     }
 
     // MARK: - Slow Tick
 
     private func slowTick() {
-        guard !isSleeping else { return }
+        let (sleeping, uiActive) = pollingLock.withLock { (polling.isSleeping, polling.isUIActive) }
+        guard !sleeping else { return }
 
         slowTickCount += 1
-        let uiActive = isUIActive
 
         if !uiActive {
             // Background: battery only — skip process enumeration and nettop entirely.
@@ -215,27 +255,23 @@ class MonitorCoordinator {
 
         // Full process snapshot including nettop only while UI is visible.
         let snapshot = processReader.readTickSnapshot(includeNetwork: true)
-
-        var diskSpace: DiskSpaceResult?
-        if slowTickCount % 2 == 0 {
-            diskSpace = diskReader.readSpace()
-        }
-
+        let diskSpace = slowTickCount % 2 == 0 ? diskReader.readSpace() : nil
         let batteryResult = batteryReader.read()
 
         if slowTickCount % 6 == 0 {
             networkReader.fetchPublicIP { [weak self] ipv4, ipv6 in
+                guard let self else { return }
                 DispatchQueue.main.async {
-                    if let ip = ipv4 { self?.networkState?.stats.publicIP = ip }
-                    if let ip6 = ipv6 { self?.networkState?.stats.publicIPv6 = ip6 }
+                    if let ip = ipv4 { self.networkState?.stats.publicIP = ip }
+                    if let ip6 = ipv6 { self.networkState?.stats.publicIPv6 = ip6 }
                 }
             }
         }
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.processHistory.append(snapshot)
-            if let d = diskSpace { self.diskState?.applySpace(d) }
+            self.processHistory?.append(snapshot)
+            if let diskSpace { self.diskState?.applySpace(diskSpace) }
             self.batteryState?.apply(batteryResult)
         }
     }

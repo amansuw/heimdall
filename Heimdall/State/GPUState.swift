@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 class GPUState {
     var usage = GPUUsage()

@@ -81,6 +81,8 @@ struct SensorReading: Identifiable, Sendable {
     var isGPUTemp: Bool { role == .gpuTemp }
     var isSystemTemp: Bool { role == .systemTemp }
 
+    /// Display text; main-actor because temperatures follow the unit setting.
+    @MainActor
     var formattedValue: String {
         switch category {
         case .temperature: return TempFormatter.format(value)

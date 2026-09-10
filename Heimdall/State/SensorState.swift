@@ -18,6 +18,7 @@ enum HistoryRange: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+@MainActor
 @Observable
 class SensorState {
     var readings: [SensorReading] = []

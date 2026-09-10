@@ -16,6 +16,7 @@ enum FanControlMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+@MainActor
 @Observable
 class FanState {
     var fans: [FanInfo] = []

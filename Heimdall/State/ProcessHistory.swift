@@ -19,6 +19,7 @@ struct ProcessTickSnapshot: Sendable, TimestampedSample {
     let gpuByPID: [Int32: ProcessGPUMetrics]
 }
 
+@MainActor
 @Observable
 final class ProcessHistory {
     private(set) var revision = 0

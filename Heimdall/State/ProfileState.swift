@@ -3,6 +3,7 @@ import Foundation
 // Fan profile storage. Previously declared inside ProfilesView.swift, which was
 // otherwise dead UI; the state is live and belongs with the other state types.
 
+@MainActor
 @Observable
 class ProfileState {
     var profiles: [FanProfile] = FanProfile.builtInProfiles
