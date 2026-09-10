@@ -145,6 +145,16 @@ open /Applications/Heimdall.app
 
 Or open `Heimdall.xcodeproj` in Xcode and press ⌘R.
 
+To run the unit tests, press ⌘U in Xcode or:
+
+```sh
+xcodebuild -project Heimdall.xcodeproj -scheme Heimdall test
+```
+
+They cover SMC value decoding (including a replay of raw bytes from a real
+diagnostics report), fan curves and history windowing. The test bundle does not
+launch the app or touch the SMC, so it is safe to run anywhere.
+
 No Apple Developer account is needed to build — the project signs ad-hoc
 (`CODE_SIGN_IDENTITY = "-"`, empty team), which is exactly what CI does.
 

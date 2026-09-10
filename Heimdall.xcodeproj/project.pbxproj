@@ -58,6 +58,21 @@
 		EF152C3B364D4290B47A5C33 /* MonitorCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DCD7F3F48140D8A403F703 /* MonitorCoordinator.swift */; };
 		F1A2B3C4D5E6F708A9B0C1D2 /* FanSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718A9B0C1D2 /* FanSettingsView.swift */; };
 		FE2FCA39759A4BDCBD54ECE1 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF4D8F7A0B24FA98B5EBFA2 /* StatusBarController.swift */; };
+		75675BCD15264B0A9279DE63 /* SMCCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C8C4CE6D16467E9E7D2AC6 /* SMCCodec.swift */; };
+		43BE4ABAF8774A9CA0B5528F /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DDD022CB170473BA0CC0E2E /* TestSupport.swift */; };
+		9D149124E6604AF69FE6BEEF /* SMCCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E1F54F02714D1ABCE40B47 /* SMCCodecTests.swift */; };
+		216BFEFCE6B048059BC71F15 /* SMCFixtureReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A55AD97DB3F4D5CB47EEB66 /* SMCFixtureReplayTests.swift */; };
+		20A9AA6DEC4947B0B596E96B /* FanCurveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2ADA4F81FF452D991468B2 /* FanCurveTests.swift */; };
+		D1BF3EFB0D4F4E07BF1F3D84 /* RingBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 453A29B94C6F4DE69A5077E5 /* RingBufferTests.swift */; };
+		4F3BBE3372BF4B678B2FDE7B /* FanCurvePlaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3930C84E48F441B989948700 /* FanCurvePlaneTests.swift */; };
+		4ADF76E8877643608463D334 /* TemperatureUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 670ABE61A4AC4BA5AF42057A /* TemperatureUnitTests.swift */; };
+		2AE8B51748CF40CF80D47809 /* SMCCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C8C4CE6D16467E9E7D2AC6 /* SMCCodec.swift */; };
+		857687E47E744B0F8941F76D /* FanCurve.swift in Sources */ = {isa = PBXBuildFile; fileRef = 187ACFEDDF704013BB1030F3 /* FanCurve.swift */; };
+		50FA498B649D474A8C6E7137 /* RingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 658DAEC6D79C44A68D9F258F /* RingBuffer.swift */; };
+		FBE27C008F934322A6C91374 /* FanCurvePlane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1E7A2B9D3F4E5A8B6C7D02 /* FanCurvePlane.swift */; };
+		3A9626F60B37408E83969954 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29F7647CC104BD48E817BC5 /* AppSettings.swift */; };
+		341D9AEBB65848CEA8A7756A /* SystemModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 613895412A4B49C187E8B018 /* SystemModels.swift */; };
+		A49FE2B26FE74D7DA95247B8 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FAFFBE03FDAF455B886D2AC4 /* IOKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -115,6 +130,15 @@
 		F7C61767161E4462B400EDBC /* FanController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanController.swift; sourceTree = "<group>"; };
 		4C1E7A2B9D3F4E5A8B6C7D04 /* AppCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCommands.swift; sourceTree = "<group>"; };
 		FAFFBE03FDAF455B886D2AC4 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
+		D5C8C4CE6D16467E9E7D2AC6 /* SMCCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCCodec.swift; sourceTree = "<group>"; };
+		5DDD022CB170473BA0CC0E2E /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		A5E1F54F02714D1ABCE40B47 /* SMCCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCCodecTests.swift; sourceTree = "<group>"; };
+		0A55AD97DB3F4D5CB47EEB66 /* SMCFixtureReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCFixtureReplayTests.swift; sourceTree = "<group>"; };
+		BE2ADA4F81FF452D991468B2 /* FanCurveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanCurveTests.swift; sourceTree = "<group>"; };
+		453A29B94C6F4DE69A5077E5 /* RingBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RingBufferTests.swift; sourceTree = "<group>"; };
+		3930C84E48F441B989948700 /* FanCurvePlaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanCurvePlaneTests.swift; sourceTree = "<group>"; };
+		670ABE61A4AC4BA5AF42057A /* TemperatureUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemperatureUnitTests.swift; sourceTree = "<group>"; };
+		EBD5422A01954AF4B232DB17 /* HeimdallTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HeimdallTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,6 +147,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				2D5518B97FA74D478247EBC4 /* IOKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E8BDE3B7DC494F5887CD1F08 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A49FE2B26FE74D7DA95247B8 /* IOKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -256,6 +288,7 @@
 			isa = PBXGroup;
 			children = (
 				4F50370AEB4D4DAA91B2B834 /* Heimdall */,
+				541DE245DF22430AB789447D /* HeimdallTests */,
 				FE74A2DEB7084117AFBAACF1 /* Products */,
 				3987DD9EBD4E41AAAE98EEDC /* Frameworks */,
 			);
@@ -278,6 +311,7 @@
 				5A7AE93D7EE0404D8A745B03 /* Formatters.swift */,
 				658DAEC6D79C44A68D9F258F /* RingBuffer.swift */,
 				7F1565C6609A432C93D0F36A /* SMCKit.swift */,
+				D5C8C4CE6D16467E9E7D2AC6 /* SMCCodec.swift */,
 				D009BBD859BB4E98A7788152 /* SensorDefinitions.swift */,
 			);
 			path = Core;
@@ -297,6 +331,7 @@
 			isa = PBXGroup;
 			children = (
 				137AE2B7DA064BE4898A0CBC /* Heimdall.app */,
+				EBD5422A01954AF4B232DB17 /* HeimdallTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -307,6 +342,20 @@
 				E0DF0A43949E40258E62FD16 /* SettingsView.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		541DE245DF22430AB789447D /* HeimdallTests */ = {
+			isa = PBXGroup;
+			children = (
+				5DDD022CB170473BA0CC0E2E /* TestSupport.swift */,
+				A5E1F54F02714D1ABCE40B47 /* SMCCodecTests.swift */,
+				0A55AD97DB3F4D5CB47EEB66 /* SMCFixtureReplayTests.swift */,
+				BE2ADA4F81FF452D991468B2 /* FanCurveTests.swift */,
+				453A29B94C6F4DE69A5077E5 /* RingBufferTests.swift */,
+				3930C84E48F441B989948700 /* FanCurvePlaneTests.swift */,
+				670ABE61A4AC4BA5AF42057A /* TemperatureUnitTests.swift */,
+			);
+			path = HeimdallTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -328,6 +377,23 @@
 			productName = Heimdall;
 			productReference = 137AE2B7DA064BE4898A0CBC /* Heimdall.app */;
 			productType = "com.apple.product-type.application";
+		};
+		F761FFD3EE0C4F1496C182A4 /* HeimdallTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 34BE4A57A2BD4B23997CECA8 /* Build configuration list for PBXNativeTarget "HeimdallTests" */;
+			buildPhases = (
+				BA4ED56E541045E98858600A /* Sources */,
+				E8BDE3B7DC494F5887CD1F08 /* Frameworks */,
+				A2811710AA3F43CDB20A07BF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HeimdallTests;
+			productName = HeimdallTests;
+			productReference = EBD5422A01954AF4B232DB17 /* HeimdallTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -353,6 +419,7 @@
 			projectRoot = "";
 			targets = (
 				E1402E39F6804B4F90C360A3 /* Heimdall */,
+				F761FFD3EE0C4F1496C182A4 /* HeimdallTests */,
 			);
 		};
 /* End PBXProject section */
@@ -363,6 +430,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				ABF952B135DD43ACAA95EC4C /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A2811710AA3F43CDB20A07BF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -383,6 +457,7 @@
 				D657238AFD034F54B3F8299A /* Formatters.swift in Sources */,
 				CFC8A636BBA44EF286CBE572 /* RingBuffer.swift in Sources */,
 				47D05CEC253E4CC281272471 /* SMCKit.swift in Sources */,
+				75675BCD15264B0A9279DE63 /* SMCCodec.swift in Sources */,
 				1A421084D795492ABDFDE7E1 /* SensorDefinitions.swift in Sources */,
 				1C44BEDA530947B5AD2F1A40 /* SMCDaemon.swift in Sources */,
 				6F7FB4700A1F43E19C6A9BF7 /* HeimdallApp.swift in Sources */,
@@ -422,6 +497,26 @@
 				7227ABB1F01F4AB2A9AF4C2A /* CanvasChart.swift in Sources */,
 				4C1E7A2B9D3F4E5A8B6C7D01 /* FanCurvePlane.swift in Sources */,
 				EADD4B88B1CB40999B4939C7 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BA4ED56E541045E98858600A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				43BE4ABAF8774A9CA0B5528F /* TestSupport.swift in Sources */,
+				9D149124E6604AF69FE6BEEF /* SMCCodecTests.swift in Sources */,
+				216BFEFCE6B048059BC71F15 /* SMCFixtureReplayTests.swift in Sources */,
+				20A9AA6DEC4947B0B596E96B /* FanCurveTests.swift in Sources */,
+				D1BF3EFB0D4F4E07BF1F3D84 /* RingBufferTests.swift in Sources */,
+				4F3BBE3372BF4B678B2FDE7B /* FanCurvePlaneTests.swift in Sources */,
+				4ADF76E8877643608463D334 /* TemperatureUnitTests.swift in Sources */,
+				2AE8B51748CF40CF80D47809 /* SMCCodec.swift in Sources */,
+				857687E47E744B0F8941F76D /* FanCurve.swift in Sources */,
+				50FA498B649D474A8C6E7137 /* RingBuffer.swift in Sources */,
+				FBE27C008F934322A6C91374 /* FanCurvePlane.swift in Sources */,
+				3A9626F60B37408E83969954 /* AppSettings.swift in Sources */,
+				341D9AEBB65848CEA8A7756A /* SystemModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -575,6 +670,36 @@
 			};
 			name = Debug;
 		};
+		70CFA7EADCCE4B4C85056B5B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heimdall.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C4627C6E714445C0B2FADFF0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heimdall.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -592,6 +717,15 @@
 			buildConfigurations = (
 				88A883ECA452456A9DCB16BE /* Debug */,
 				331487BDCA1A4F1CAD50CA5F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		34BE4A57A2BD4B23997CECA8 /* Build configuration list for PBXNativeTarget "HeimdallTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				70CFA7EADCCE4B4C85056B5B /* Debug */,
+				C4627C6E714445C0B2FADFF0 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
