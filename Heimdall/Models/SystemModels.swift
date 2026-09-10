@@ -49,6 +49,8 @@ struct LoadAverage: Sendable {
 
 struct GPUUsage: Sendable {
     var modelName: String = "Unknown"
+    /// Number of GPU cores reported by the IORegistry (0 when unknown).
+    var coreCount: Int = 0
     var utilization: Double = 0
     var renderUtilization: Double = 0
     var tilerUtilization: Double = 0
@@ -169,14 +171,63 @@ struct FanInfo: Identifiable, Sendable {
 
 // MARK: - History Snapshots
 
-struct CPUSnapshot: Sendable {
+/// Anything stored in a time-ordered `RingBuffer`. Lets the buffer slice a time
+/// window with a binary search instead of materialising the whole buffer.
+protocol TimestampedSnapshot {
+    var timestamp: Date { get }
+}
+
+extension RingBuffer where Element: TimestampedSnapshot {
+    /// Logical index of the oldest element whose timestamp is >= `cutoff`.
+    /// O(log n), no allocation. Assumes chronological append order.
+    func firstIndex(atOrAfter cutoff: Date) -> Int {
+        var low = 0
+        var high = count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if let element = self[mid], element.timestamp >= cutoff {
+                high = mid
+            } else {
+                low = mid + 1
+            }
+        }
+        return low
+    }
+
+    /// Elements newer than `cutoff`, in chronological order.
+    /// O(log n + k) where k is the number of elements actually returned — the
+    /// elements outside the window are never copied.
+    func elements(since cutoff: Date) -> [Element] {
+        guard count > 0 else { return [] }
+        let start = firstIndex(atOrAfter: cutoff)
+        guard start < count else { return [] }
+        var result = [Element]()
+        result.reserveCapacity(count - start)
+        for index in start..<count {
+            if let element = self[index] { result.append(element) }
+        }
+        return result
+    }
+
+    /// Iterates elements newer than `cutoff` without allocating an array.
+    func forEachElement(since cutoff: Date, _ body: (Element) -> Void) {
+        guard count > 0 else { return }
+        let start = firstIndex(atOrAfter: cutoff)
+        guard start < count else { return }
+        for index in start..<count {
+            if let element = self[index] { body(element) }
+        }
+    }
+}
+
+struct CPUSnapshot: Sendable, TimestampedSnapshot {
     let timestamp: Date
     let total: Double
     let user: Double
     let system: Double
 }
 
-struct TemperatureSnapshot: Sendable {
+struct TemperatureSnapshot: Sendable, TimestampedSnapshot {
     let timestamp: Date
     let avgCPU: Double
     let avgGPU: Double
@@ -184,26 +235,26 @@ struct TemperatureSnapshot: Sendable {
     let maxGPU: Double
 }
 
-struct NetworkSnapshot: Sendable {
+struct NetworkSnapshot: Sendable, TimestampedSnapshot {
     let timestamp: Date
     let downloadBytesPerSec: UInt64
     let uploadBytesPerSec: UInt64
 }
 
-struct DiskIOSnapshot: Sendable {
+struct DiskIOSnapshot: Sendable, TimestampedSnapshot {
     let timestamp: Date
     let readBytesPerSec: UInt64
     let writeBytesPerSec: UInt64
 }
 
-struct GPUSnapshot: Sendable {
+struct GPUSnapshot: Sendable, TimestampedSnapshot {
     let timestamp: Date
     let utilization: Double
     let renderUtilization: Double
     let tilerUtilization: Double
 }
 
-struct RAMSnapshot: Sendable {
+struct RAMSnapshot: Sendable, TimestampedSnapshot {
     let timestamp: Date
     let usagePercent: Double
     let appBytes: UInt64
