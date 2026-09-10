@@ -172,42 +172,16 @@ class MonitorCoordinator {
     private func fastTick() {
         guard !isSleeping else { return }
 
-        let uiActive = isUIActive
-
-        if !uiActive && !isBoostedPollingActive {
-            // Background: full metric sample every 30s so charts stay continuous,
-            // but skip the heavy process/nettop path (that's on the slow timer).
-            let cpuResult = cpuReader.read()
-            let ramResult = ramReader.read()
-            let gpuResult = gpuReader.read()
-            let netResult = networkReader.read()
-            let diskIOResult = diskReader.readIO()
-            let sensorResult = sensorReader.read()
-            fanController?.readFanSpeeds()
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.cpuState?.apply(cpuResult, recordHistory: true)
-                self.ramState?.apply(ramResult, recordHistory: true)
-                self.gpuState?.apply(gpuResult, recordHistory: true)
-                self.networkState?.apply(netResult, recordHistory: true)
-                self.diskState?.applyIO(diskIOResult, recordHistory: true)
-                if let sensorResult {
-                    self.sensorState?.apply(sensorResult, recordHistory: true)
-                }
-                self.fanController?.applyReadings()
-            }
-            return
-        }
-
+        // One sample set at every cadence: since sensors stopped being thinned to
+        // every 5th tick, the background and visible paths were identical. What
+        // differs is only how often this runs (fastInterval). The heavy
+        // process/nettop work stays on the slow timer.
         let cpuResult = cpuReader.read()
         let ramResult = ramReader.read()
         let gpuResult = gpuReader.read()
         let netResult = networkReader.read()
         let diskIOResult = diskReader.readIO()
-
         let sensorResult = sensorReader.read()
-
         fanController?.readFanSpeeds()
 
         DispatchQueue.main.async { [weak self] in
@@ -217,7 +191,7 @@ class MonitorCoordinator {
             self.gpuState?.apply(gpuResult, recordHistory: true)
             self.networkState?.apply(netResult, recordHistory: true)
             self.diskState?.applyIO(diskIOResult, recordHistory: true)
-            if let r = sensorResult { self.sensorState?.apply(r, recordHistory: true) }
+            if let sensorResult { self.sensorState?.apply(sensorResult, recordHistory: true) }
             self.fanController?.applyReadings()
         }
     }
