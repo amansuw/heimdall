@@ -122,7 +122,7 @@ struct SensorLookup {
         "PD0R": "DC In", "PDTR": "DC In Total", "PSTR": "System Total", "PM0R": "Memory",
     ]
 
-    static let temperatureDataTypes: Set<String> = ["sp78", "sp87", "sp96", "flt ", "sp3c", "sp4b", "sp5a", "sp69"]
+    static let temperatureDataTypes: Set<String> = ["sp78", "sp87", "sp96", "flt ", "sp3c", "sp4b", "sp5a", "sp69", "ioft"]
 
     static let analogDataTypes: Set<String> = [
         "sp78", "sp87", "sp96", "sp3c", "sp4b", "sp5a", "sp69", "sp1e", "spb4", "spf0",

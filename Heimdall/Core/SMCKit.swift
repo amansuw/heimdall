@@ -393,8 +393,18 @@ class SMCKit {
             return Double(rawValue)
         }
 
-        if dt == "ioft" && val.bytes.count >= 4 {
-            return Double(Self.floatFromBytes(val.bytes))
+        // "ioft" is an 8-byte little-endian fixed-point value with 16 fractional
+        // bits, NOT a float. Reading its first four bytes as a Float produced a
+        // denormal that rounded to zero, so every ioft sensor read as exactly
+        // 0.0000 — on an M3 Pro that silently zeroed six GPU temperature sensors
+        // (TG0B/TG0C/TG0H/TG0V/TG1B/TG2B) and three thermal ones. Verified
+        // against a live key dump: the same bytes yield 26.0-51.9 C here.
+        if dt == "ioft" && val.bytes.count >= 8 {
+            var raw: UInt64 = 0
+            for (index, byte) in val.bytes.prefix(8).enumerated() {
+                raw |= UInt64(byte) << (8 * UInt64(index))
+            }
+            return Double(raw) / 65536.0
         }
 
         return nil
@@ -412,8 +422,13 @@ class SMCKit {
     func encodeValue(_ value: Double, dataType: String) -> [UInt8]? {
         let dt = dataType.trimmingCharacters(in: .whitespaces)
 
-        if dt == "flt" || dt == "ioft" {
+        if dt == "flt" {
             return withUnsafeBytes(of: Float(value)) { Array($0) }
+        }
+
+        if dt == "ioft" {
+            let raw = UInt64((value * 65536.0).rounded())
+            return (0..<8).map { UInt8(truncatingIfNeeded: raw >> (8 * UInt64($0))) }
         }
 
         if let format = FixedPointFormat(dataType: dt) {

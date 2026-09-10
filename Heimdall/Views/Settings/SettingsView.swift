@@ -40,6 +40,9 @@ struct SettingsView: View {
 
             FanHelperSettings()
                 .tabItem { Label("Fan Control", systemImage: "fan.fill") }
+
+            DiagnosticsSettings()
+                .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
         }
         .frame(width: 460, height: 320)
     }
@@ -98,6 +101,49 @@ private struct FanHelperSettings: View {
                          Fans return to automatic control immediately.
                          """)
                 }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+
+/// Heimdall is developed on one Mac. A diagnostics dump from someone else's
+/// machine is the practical way to fix sensors, fans or core layout on hardware
+/// the author cannot test.
+private struct DiagnosticsSettings: View {
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Report a hardware problem").font(.headline)
+
+            Text("""
+                 If sensors, fans or CPU cores look wrong on your Mac, copy this                  report into a GitHub issue. It lists your CPU cluster layout, GPU                  core count and every SMC key with its raw bytes — the raw bytes are                  what make it possible to reproduce and fix a decoding bug without                  owning your machine.
+
+                 It contains no personal data: no file names, no network addresses,                  no account details.
+                 """)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Button(copied ? "Copied" : "Copy Diagnostics") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(Diagnostics.report(), forType: .string)
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Open Issue Tracker") {
+                    if let url = URL(string: "https://github.com/amansuw/heimdall/issues/new?template=hardware-report.md") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+
+            Spacer()
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
