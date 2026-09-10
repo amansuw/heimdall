@@ -17,6 +17,8 @@ class FanController {
     private var lastCurveAboveZero: Date = .distantPast
     private let curveModeTransitionCooldown: TimeInterval = 30
 
+    /// Written from both the monitor's tick queue and helperQueue, drained on the
+    /// main thread — so it needs the same lock as the coalescing state.
     private var pendingFanSpeeds: [(Int, Double)]?
 
     /// Fan indices captured at discovery. The teardown path uses these instead of
@@ -399,7 +401,7 @@ class FanController {
                         speeds.append((i, speed))
                     }
                 }
-                self.pendingFanSpeeds = speeds
+                self.applyLock.withLock { self.pendingFanSpeeds = speeds }
             }
         } else {
             var speeds = [(Int, Double)]()
@@ -408,15 +410,18 @@ class FanController {
                     speeds.append((i, current))
                 }
             }
-            pendingFanSpeeds = speeds
+            applyLock.withLock { pendingFanSpeeds = speeds }
         }
 
         reevaluateCurveIfNeeded()
     }
 
     func applyReadings() {
-        guard let speeds = pendingFanSpeeds else { return }
-        pendingFanSpeeds = nil
+        let speeds: [(Int, Double)]? = applyLock.withLock {
+            defer { pendingFanSpeeds = nil }
+            return pendingFanSpeeds
+        }
+        guard let speeds else { return }
         for (i, speed) in speeds {
             if i < (fanState?.fans.count ?? 0) {
                 fanState?.fans[i].currentSpeed = speed
