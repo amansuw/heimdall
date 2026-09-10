@@ -7,13 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9DCD6FF0ECB0460EA4FCBF4E /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F6E72B3DD946ECA4735A0D /* Notifications.swift */; };
+		2DCF251A384040BDA4FF92DF /* ProfileState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA95708947194940A4A072BD /* ProfileState.swift */; };
 		0CBCAD0F04CF4397B4B12113 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68EDE659465642898B8323D8 /* PopoverView.swift */; };
 		13512E0CC9E84739BEED68EB /* SensorReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA28AF4ED12845358B89271F /* SensorReader.swift */; };
 		183B09C6290C425FB87AB11F /* MenuBarWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50356B638E74202932FE2CF /* MenuBarWidgetView.swift */; };
 		1A421084D795492ABDFDE7E1 /* SensorDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D009BBD859BB4E98A7788152 /* SensorDefinitions.swift */; };
 		1A713D5851554E3B91F7458C /* BatteryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D9965CE433949CCB8FDC111 /* BatteryState.swift */; };
 		1C44BEDA530947B5AD2F1A40 /* SMCDaemon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 807132A334504906B8350E24 /* SMCDaemon.swift */; };
-		227F396E435B44D09CA0C181 /* FanCurveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A54486D0CE241D993E992AA /* FanCurveView.swift */; };
 		2D5518B97FA74D478247EBC4 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FAFFBE03FDAF455B886D2AC4 /* IOKit.framework */; };
 		2FD811604C894A03B8EA56AC /* GPUView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2459E12DA8DB417AAF2F8E4E /* GPUView.swift */; };
 		33383BD9EFF247F69AC0BA98 /* BatteryReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E39DAA39DBC4B5BA7F3388E /* BatteryReader.swift */; };
@@ -41,8 +42,6 @@
 		AEA117BF416644DD99E56AA9 /* SensorListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E6AF814C884419AB8AF6E2 /* SensorListView.swift */; };
 		B1C2D3E4F5A60718293B4C5D /* ProcessHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* ProcessHistory.swift */; };
 		B3B7F4B9434E46B1B2AD2204 /* CPUView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4B7BF71E4C465390CB7082 /* CPUView.swift */; };
-		B67DDF3B2D4B4C67B0FDA857 /* FanControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A2BD30CBAB4CC3BD4F5A3B /* FanControlView.swift */; };
-		BCC8190402D94EE4969C13A8 /* ProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31927B0920B14EA7A00C9FF3 /* ProfilesView.swift */; };
 		BD92D4EACE134CBE9007B4DB /* FanProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C81ED99336477495EA5167 /* FanProfile.swift */; };
 		C0C7CD4DDA204A58B1E39EBC /* CPUState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08D0AF1D57E04032A96101DF /* CPUState.swift */; };
 		CFC8A636BBA44EF286CBE572 /* RingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 658DAEC6D79C44A68D9F258F /* RingBuffer.swift */; };
@@ -58,6 +57,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		45F6E72B3DD946ECA4735A0D /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
+		BA95708947194940A4A072BD /* ProfileState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileState.swift; sourceTree = "<group>"; };
 		08D0AF1D57E04032A96101DF /* CPUState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CPUState.swift; sourceTree = "<group>"; };
 		0BB91150E9A748539A37F0BD /* FanState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanState.swift; sourceTree = "<group>"; };
 		0C7F826878AA439E843EC207 /* HeimdallApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallApp.swift; sourceTree = "<group>"; };
@@ -68,12 +69,10 @@
 		1F4550B8AA9447B9A18A1B03 /* RAMState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RAMState.swift; sourceTree = "<group>"; };
 		2459E12DA8DB417AAF2F8E4E /* GPUView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUView.swift; sourceTree = "<group>"; };
 		2DD3079AFBF840F18B2BAB42 /* NetworkReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkReader.swift; sourceTree = "<group>"; };
-		31927B0920B14EA7A00C9FF3 /* ProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilesView.swift; sourceTree = "<group>"; };
 		3D9965CE433949CCB8FDC111 /* BatteryState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryState.swift; sourceTree = "<group>"; };
 		3E39DAA39DBC4B5BA7F3388E /* BatteryReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryReader.swift; sourceTree = "<group>"; };
 		44E6AF814C884419AB8AF6E2 /* SensorListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorListView.swift; sourceTree = "<group>"; };
 		55A39DC889AC42509729D9B8 /* CPUReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CPUReader.swift; sourceTree = "<group>"; };
-		5A54486D0CE241D993E992AA /* FanCurveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanCurveView.swift; sourceTree = "<group>"; };
 		5A7AE93D7EE0404D8A745B03 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		613895412A4B49C187E8B018 /* SystemModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemModels.swift; sourceTree = "<group>"; };
 		650C7724760F443BB3EE3CA7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -82,7 +81,6 @@
 		6F8D55A52CA144BABB0366C6 /* NetworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkView.swift; sourceTree = "<group>"; };
 		72684ADCAF1E46DD950E4A69 /* ProcessReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessReader.swift; sourceTree = "<group>"; };
 		769C877A946641FDA559AF17 /* SensorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorState.swift; sourceTree = "<group>"; };
-		79A2BD30CBAB4CC3BD4F5A3B /* FanControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanControlView.swift; sourceTree = "<group>"; };
 		7F1565C6609A432C93D0F36A /* SMCKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCKit.swift; sourceTree = "<group>"; };
 		807132A334504906B8350E24 /* SMCDaemon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCDaemon.swift; sourceTree = "<group>"; };
 		82A91EFA753243A8A0A0C814 /* DiskReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskReader.swift; sourceTree = "<group>"; };
@@ -195,6 +193,7 @@
 		68691B205CD1479F891D2B62 /* State */ = {
 			isa = PBXGroup;
 			children = (
+				BA95708947194940A4A072BD /* ProfileState.swift */,
 				3D9965CE433949CCB8FDC111 /* BatteryState.swift */,
 				08D0AF1D57E04032A96101DF /* CPUState.swift */,
 				ECFFDE0A263F4F47B761F4E8 /* DiskState.swift */,
@@ -216,12 +215,9 @@
 				D711043B142F41DC807D7793 /* ContentView.swift */,
 				D6FDB9987BCA4931B6C85126 /* DashboardView.swift */,
 				BCE41FCFF6574ACD9750E202 /* DiskView.swift */,
-				79A2BD30CBAB4CC3BD4F5A3B /* FanControlView.swift */,
-				5A54486D0CE241D993E992AA /* FanCurveView.swift */,
 				A1B2C3D4E5F60718A9B0C1D2 /* FanSettingsView.swift */,
 				2459E12DA8DB417AAF2F8E4E /* GPUView.swift */,
 				6F8D55A52CA144BABB0366C6 /* NetworkView.swift */,
-				31927B0920B14EA7A00C9FF3 /* ProfilesView.swift */,
 				E41F7776577146458CA5C5F8 /* RAMView.swift */,
 				44E6AF814C884419AB8AF6E2 /* SensorListView.swift */,
 			);
@@ -267,6 +263,7 @@
 		EE7111168B0D4D15A8B8F5A9 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				45F6E72B3DD946ECA4735A0D /* Notifications.swift */,
 				5A7AE93D7EE0404D8A745B03 /* Formatters.swift */,
 				658DAEC6D79C44A68D9F258F /* RingBuffer.swift */,
 				7F1565C6609A432C93D0F36A /* SMCKit.swift */,
@@ -356,6 +353,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9DCD6FF0ECB0460EA4FCBF4E /* Notifications.swift in Sources */,
+				2DCF251A384040BDA4FF92DF /* ProfileState.swift in Sources */,
 				3B8EA578AFE746DC85084C4D /* FanController.swift in Sources */,
 				EF152C3B364D4290B47A5C33 /* MonitorCoordinator.swift in Sources */,
 				D657238AFD034F54B3F8299A /* Formatters.swift in Sources */,
@@ -391,12 +390,9 @@
 				773B81DD26534E02B4E10C97 /* ContentView.swift in Sources */,
 				5DCD35588D354D3EBDBB14A9 /* DashboardView.swift in Sources */,
 				ABB47DAE67A345878349C84A /* DiskView.swift in Sources */,
-				B67DDF3B2D4B4C67B0FDA857 /* FanControlView.swift in Sources */,
-				227F396E435B44D09CA0C181 /* FanCurveView.swift in Sources */,
 				F1A2B3C4D5E6F708A9B0C1D2 /* FanSettingsView.swift in Sources */,
 				2FD811604C894A03B8EA56AC /* GPUView.swift in Sources */,
 				D3739BB395D84518BC7DF7F3 /* NetworkView.swift in Sources */,
-				BCC8190402D94EE4969C13A8 /* ProfilesView.swift in Sources */,
 				4389762BD2D947579F65B638 /* RAMView.swift in Sources */,
 				AEA117BF416644DD99E56AA9 /* SensorListView.swift in Sources */,
 				0CBCAD0F04CF4397B4B12113 /* PopoverView.swift in Sources */,
