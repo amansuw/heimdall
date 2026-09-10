@@ -34,8 +34,8 @@ struct PopoverView: View {
                         .init(history, value: { $0.avgGPU }, color: .green, label: "GPU Avg"),
                         .init(history, value: { $0.maxGPU }, color: .green, label: "GPU Peak", dashed: true),
                     ], window: sensors.historyRange.window,
-                       yFormatter: { String(format: "%.0f°", $0) },
-                       tooltipFormatter: { String(format: "%.1f°", $0) })
+                       yFormatter: { TempFormatter.axisLabel($0) },
+                       tooltipFormatter: { TempFormatter.tooltipLabel($0) })
                     .frame(height: 100)
                     .padding(.horizontal, 10)
                 }
@@ -164,7 +164,7 @@ struct MiniStatCard: View {
         HStack(spacing: 4) {
             Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
             Spacer()
-            Text(String(format: "%.0f°C", value))
+            Text(TempFormatter.formatShort(value))
                 .font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(color)
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
