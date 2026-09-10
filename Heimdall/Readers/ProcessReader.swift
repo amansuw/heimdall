@@ -81,13 +81,27 @@ class ProcessReader {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return [:]
         }
 
+        // nettop normally exits well inside a second. If it wedges, kill it rather
+        // than hold the slow queue — and every process ranking with it — forever.
+        let watchdog = DispatchWorkItem { [process] in
+            if process.isRunning { process.terminate() }
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5, execute: watchdog)
+
+        // Drain before waiting. With one CSV line per process the output can exceed
+        // the 64 KB pipe buffer; nettop then blocks on write and never exits, so
+        // waiting first would deadlock.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+        process.waitUntilExit()
+        watchdog.cancel()
+
+        // A terminated run left truncated output; a partial table ranks wrongly.
+        guard process.terminationReason == .exit,
+              let output = String(data: data, encoding: .utf8) else { return [:] }
 
         var metrics: [String: UInt64] = [:]
         let lines = output.components(separatedBy: "\n")

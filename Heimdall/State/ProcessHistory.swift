@@ -189,17 +189,27 @@ final class ProcessHistory {
             }
         }
 
+        // nettop reports by name; rankings need a pid. Resolve every name in one
+        // newest-first pass, which usually finishes in the latest tick, instead of
+        // rescanning the whole window once per name in both the filter and the map.
+        var pidByName: [String: Int32] = [:]
+        var unresolved = Set(totals.keys)
+        for tick in windowTicks.reversed() where !unresolved.isEmpty {
+            for (pid, metrics) in tick.processes where unresolved.remove(metrics.name) != nil {
+                pidByName[metrics.name] = pid
+            }
+        }
+
         return totals
-            .filter { isListed(pid: pid(forProcessNamed: $0.key, in: windowTicks), name: $0.key) && $0.value > 0 }
-            .sorted { $0.value > $1.value }
+            .compactMap { name, bytes -> (Int32, String, UInt64)? in
+                let pid = pidByName[name] ?? 0
+                guard bytes > 0, isListed(pid: pid, name: name) else { return nil }
+                return (pid, name, bytes)
+            }
+            .sorted { $0.2 > $1.2 }
             .prefix(limit)
-            .map { entry in
-                TopProcess(
-                    pid: pid(forProcessNamed: entry.key, in: windowTicks),
-                    name: entry.key,
-                    value: Double(entry.value),
-                    formattedValue: ByteFormatter.format(entry.value)
-                )
+            .map { pid, name, bytes in
+                TopProcess(pid: pid, name: name, value: Double(bytes), formattedValue: ByteFormatter.format(bytes))
             }
     }
 
@@ -289,14 +299,5 @@ final class ProcessHistory {
         .map { pid, name, metric in
             TopProcess(pid: pid, name: name, value: metric, formattedValue: format(metric))
         }
-    }
-
-    private func pid(forProcessNamed name: String, in ticks: [ProcessTickSnapshot]) -> Int32 {
-        for tick in ticks.reversed() {
-            for (pid, metrics) in tick.processes where metrics.name == name {
-                return pid
-            }
-        }
-        return 0
     }
 }
