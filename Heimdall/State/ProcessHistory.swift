@@ -12,7 +12,7 @@ struct ProcessGPUMetrics: Sendable {
     let gpuTimeNs: UInt64
 }
 
-struct ProcessTickSnapshot: Sendable {
+struct ProcessTickSnapshot: Sendable, TimestampedSample {
     let timestamp: Date
     let processes: [Int32: ProcessTickMetrics]
     let networkByName: [String: UInt64]
@@ -22,9 +22,32 @@ struct ProcessTickSnapshot: Sendable {
 @Observable
 final class ProcessHistory {
     private(set) var revision = 0
-    private var ticks = RingBuffer<ProcessTickSnapshot>(capacity: 90)
-    private var terminatedPIDs = Set<Int32>()
-    private var terminatedNames = Set<String>()
+    @ObservationIgnored private var ticks = RingBuffer<ProcessTickSnapshot>(capacity: 90)
+    @ObservationIgnored private var terminatedPIDs = Set<Int32>()
+    @ObservationIgnored private var terminatedNames = Set<String>()
+
+    /// One ranking result, tagged with the data revision and window it was
+    /// computed from. The `topX` accessors run from SwiftUI `body`, which
+    /// re-evaluates on *any* observed change; without this, every render
+    /// re-walked up to 90 ticks of ~500 processes per metric. The cache is
+    /// `@ObservationIgnored` so filling it cannot itself trigger observation.
+    private struct RankingCache {
+        let revision: Int
+        let window: TimeInterval
+        let limit: Int
+        let coreCount: Int
+        let value: [TopProcess]
+
+        func matches(revision: Int, window: TimeInterval, limit: Int, coreCount: Int) -> Bool {
+            self.revision == revision && self.window == window && self.limit == limit && self.coreCount == coreCount
+        }
+    }
+
+    @ObservationIgnored private var cpuCache: RankingCache?
+    @ObservationIgnored private var gpuCache: RankingCache?
+    @ObservationIgnored private var ramCache: RankingCache?
+    @ObservationIgnored private var diskCache: RankingCache?
+    @ObservationIgnored private var networkCache: RankingCache?
 
     func append(_ snapshot: ProcessTickSnapshot) {
         ticks.append(snapshot)
@@ -48,7 +71,10 @@ final class ProcessHistory {
     }
 
     func topCPU(window: TimeInterval, limit: Int, coreCount: Int) -> [TopProcess] {
-        rankByDelta(
+        if let cpuCache, cpuCache.matches(revision: revision, window: window, limit: limit, coreCount: coreCount) {
+            return cpuCache.value
+        }
+        let result = rankByDelta(
             window: window,
             limit: limit,
             value: { last, first, elapsed in
@@ -58,10 +84,15 @@ final class ProcessHistory {
             },
             format: { Self.formatPercent($0) }
         )
+        cpuCache = RankingCache(revision: revision, window: window, limit: limit, coreCount: coreCount, value: result)
+        return result
     }
 
     func topGPU(window: TimeInterval, limit: Int) -> [TopProcess] {
-        rankGPUByDelta(
+        if let gpuCache, gpuCache.matches(revision: revision, window: window, limit: limit, coreCount: 0) {
+            return gpuCache.value
+        }
+        let result = rankGPUByDelta(
             window: window,
             limit: limit,
             value: { last, first, elapsed in
@@ -71,6 +102,8 @@ final class ProcessHistory {
             },
             format: { Self.formatPercent($0) }
         )
+        gpuCache = RankingCache(revision: revision, window: window, limit: limit, coreCount: 0, value: result)
+        return result
     }
 
     private static func formatPercent(_ value: Double) -> String {
@@ -79,6 +112,15 @@ final class ProcessHistory {
     }
 
     func topRAM(window: TimeInterval, limit: Int) -> [TopProcess] {
+        if let ramCache, ramCache.matches(revision: revision, window: window, limit: limit, coreCount: 0) {
+            return ramCache.value
+        }
+        let result = computeTopRAM(window: window, limit: limit)
+        ramCache = RankingCache(revision: revision, window: window, limit: limit, coreCount: 0, value: result)
+        return result
+    }
+
+    private func computeTopRAM(window: TimeInterval, limit: Int) -> [TopProcess] {
         let windowTicks = ticks(in: window)
         guard !windowTicks.isEmpty else { return [] }
 
@@ -106,7 +148,10 @@ final class ProcessHistory {
     }
 
     func topDiskIO(window: TimeInterval, limit: Int) -> [TopProcess] {
-        rankByDelta(
+        if let diskCache, diskCache.matches(revision: revision, window: window, limit: limit, coreCount: 0) {
+            return diskCache.value
+        }
+        let result = rankByDelta(
             window: window,
             limit: limit,
             value: { last, first, _ in
@@ -120,9 +165,20 @@ final class ProcessHistory {
                 return "\(count)"
             }
         )
+        diskCache = RankingCache(revision: revision, window: window, limit: limit, coreCount: 0, value: result)
+        return result
     }
 
     func topNetwork(window: TimeInterval, limit: Int) -> [TopProcess] {
+        if let networkCache, networkCache.matches(revision: revision, window: window, limit: limit, coreCount: 0) {
+            return networkCache.value
+        }
+        let result = computeTopNetwork(window: window, limit: limit)
+        networkCache = RankingCache(revision: revision, window: window, limit: limit, coreCount: 0, value: result)
+        return result
+    }
+
+    private func computeTopNetwork(window: TimeInterval, limit: Int) -> [TopProcess] {
         let windowTicks = ticks(in: window)
         guard !windowTicks.isEmpty else { return [] }
 
@@ -147,9 +203,10 @@ final class ProcessHistory {
             }
     }
 
+    /// Ticks inside the window, sliced straight out of the ring buffer with a
+    /// binary search — no full-buffer copy, no filter pass.
     private func ticks(in window: TimeInterval) -> [ProcessTickSnapshot] {
-        let cutoff = Date().addingTimeInterval(-window)
-        return ticks.toArray().filter { $0.timestamp >= cutoff }
+        ticks.elements(since: Date().addingTimeInterval(-window))
     }
 
     private func rankGPUByDelta(

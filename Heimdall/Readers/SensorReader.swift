@@ -6,6 +6,13 @@ struct SensorReaderResult: Sendable {
     let volt: [SensorReading]
     let curr: [SensorReading]
     let pow: [SensorReading]
+    /// CPU die temperatures, sorted by key. Derived here so the UI never has to
+    /// re-scan `temp` for them.
+    let cpuTemps: [SensorReading]
+    /// GPU die temperatures, sorted by key.
+    let gpuTemps: [SensorReading]
+    /// Chassis temperatures shown on the dashboard, sorted by key.
+    let systemTemps: [SensorReading]
     let snapshot: TemperatureSnapshot
 }
 
@@ -13,12 +20,6 @@ class SensorReader {
     private let smc = SMCKit.shared
     private(set) var discoveredSensors: [(key: String, name: String, category: SensorCategory)] = []
     private(set) var isDiscovering = true
-
-    private var scratchAll: [SensorReading] = []
-    private var scratchTemp: [SensorReading] = []
-    private var scratchVolt: [SensorReading] = []
-    private var scratchCurr: [SensorReading] = []
-    private var scratchPow: [SensorReading] = []
 
     func discoverSensors() {
         isDiscovering = true
@@ -32,6 +33,10 @@ class SensorReader {
             guard let key = smc.getKeyAtIndex(i) else { continue }
             guard !seenKeys.contains(key) else { continue }
             guard let category = SensorLookup.category(for: key) else { continue }
+            // Fan keys (F<n>Ac/Mn/Mx/Tg) are owned by FanController, which reads
+            // them on its own cadence. Polling them here every tick only to drop
+            // the readings is wasted SMC traffic.
+            guard category != .fan else { continue }
             guard let val = smc.readKey(key) else { continue }
             guard SensorLookup.isValidDataType(val.dataType, for: category) else { continue }
 
@@ -61,14 +66,18 @@ class SensorReader {
     func read() -> SensorReaderResult? {
         guard !discoveredSensors.isEmpty else { return nil }
 
-        scratchAll.removeAll(keepingCapacity: true)
-        scratchTemp.removeAll(keepingCapacity: true)
-        scratchVolt.removeAll(keepingCapacity: true)
-        scratchCurr.removeAll(keepingCapacity: true)
-        scratchPow.removeAll(keepingCapacity: true)
+        var all: [SensorReading] = []
+        var temp: [SensorReading] = []
+        var volt: [SensorReading] = []
+        var curr: [SensorReading] = []
+        var pow: [SensorReading] = []
+        var cpuTemps: [SensorReading] = []
+        var gpuTemps: [SensorReading] = []
+        var systemTemps: [SensorReading] = []
+        all.reserveCapacity(discoveredSensors.count)
 
-        var cpuTempSum = 0.0, cpuTempMax = 0.0, cpuTempCount = 0
-        var gpuTempSum = 0.0, gpuTempMax = 0.0, gpuTempCount = 0
+        var cpuTempSum = 0.0, cpuTempMax = 0.0
+        var gpuTempSum = 0.0, gpuTempMax = 0.0
 
         for sensor in discoveredSensors {
             guard let val = smc.readKey(sensor.key) else { continue }
@@ -77,33 +86,44 @@ class SensorReader {
                   SensorLookup.isReasonableValue(value, for: sensor.category) else { continue }
 
             let reading = SensorReading(id: sensor.key, name: sensor.name, category: sensor.category, value: value, key: sensor.key)
-            scratchAll.append(reading)
+            all.append(reading)
 
             switch sensor.category {
             case .temperature:
-                scratchTemp.append(reading)
-                let k = sensor.key
-                if k.hasPrefix("TC") || k.hasPrefix("Tc") {
-                    cpuTempSum += value; cpuTempMax = max(cpuTempMax, value); cpuTempCount += 1
-                } else if k.hasPrefix("TG") || k.hasPrefix("Tg") {
-                    gpuTempSum += value; gpuTempMax = max(gpuTempMax, value); gpuTempCount += 1
+                temp.append(reading)
+                switch reading.role {
+                case .cpuTemp:
+                    cpuTemps.append(reading)
+                    cpuTempSum += value
+                    cpuTempMax = max(cpuTempMax, value)
+                case .gpuTemp:
+                    gpuTemps.append(reading)
+                    gpuTempSum += value
+                    gpuTempMax = max(gpuTempMax, value)
+                case .systemTemp:
+                    systemTemps.append(reading)
+                case .other:
+                    break
                 }
-            case .voltage: scratchVolt.append(reading)
-            case .current: scratchCurr.append(reading)
-            case .power: scratchPow.append(reading)
+            case .voltage: volt.append(reading)
+            case .current: curr.append(reading)
+            case .power: pow.append(reading)
             case .fan: break
             }
         }
 
         // A tick with no matching sensors is a MISSING sample, not 0 — recording
         // 0 would drag the chart's y-domain down and draw a false dip to zero.
-        let avgCPU: Double? = cpuTempCount > 0 ? cpuTempSum / Double(cpuTempCount) : nil
-        let avgGPU: Double? = gpuTempCount > 0 ? gpuTempSum / Double(gpuTempCount) : nil
-        let maxCPU: Double? = cpuTempCount > 0 ? cpuTempMax : nil
-        let maxGPU: Double? = gpuTempCount > 0 ? gpuTempMax : nil
+        // `discoveredSensors` is already key-sorted within a category, so the
+        // per-role arrays come out sorted by key for free.
+        let avgCPU: Double? = cpuTemps.isEmpty ? nil : cpuTempSum / Double(cpuTemps.count)
+        let avgGPU: Double? = gpuTemps.isEmpty ? nil : gpuTempSum / Double(gpuTemps.count)
+        let maxCPU: Double? = cpuTemps.isEmpty ? nil : cpuTempMax
+        let maxGPU: Double? = gpuTemps.isEmpty ? nil : gpuTempMax
 
         return SensorReaderResult(
-            all: scratchAll, temp: scratchTemp, volt: scratchVolt, curr: scratchCurr, pow: scratchPow,
+            all: all, temp: temp, volt: volt, curr: curr, pow: pow,
+            cpuTemps: cpuTemps, gpuTemps: gpuTemps, systemTemps: systemTemps,
             snapshot: TemperatureSnapshot(timestamp: Date(), avgCPU: avgCPU, avgGPU: avgGPU, maxCPU: maxCPU, maxGPU: maxGPU)
         )
     }
@@ -111,10 +131,10 @@ class SensorReader {
     // MARK: - Curated aggregates
 
     func cpuTemps(from readings: [SensorReading]) -> [SensorReading] {
-        readings.filter { $0.key.hasPrefix("TC") || $0.key.hasPrefix("Tc") }
+        readings.filter(\.isCPUTemp)
     }
 
     func gpuTemps(from readings: [SensorReading]) -> [SensorReading] {
-        readings.filter { $0.key.hasPrefix("TG") || $0.key.hasPrefix("Tg") }
+        readings.filter(\.isGPUTemp)
     }
 }

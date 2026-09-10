@@ -32,12 +32,54 @@ enum SensorCategory: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// What a sensor measures, resolved once from its SMC key when the reading is
+/// built. Avoids re-running prefix matches over the reading arrays on every
+/// aggregate access / SwiftUI render.
+enum SensorRole: Sendable {
+    /// CPU die/core temperature (TC*, Tc*).
+    case cpuTemp
+    /// GPU die temperature (TG*, Tg*).
+    case gpuTemp
+    /// Chassis-level temperature shown on the dashboard (TH*, TB*, Ta*, TW*).
+    case systemTemp
+    case other
+
+    /// Classifies an SMC key. Mirrors the prefix rules the aggregates used to
+    /// apply ad hoc, but works on UTF-8 bytes so there is no String allocation.
+    static func classify(key: String, category: SensorCategory) -> SensorRole {
+        guard category == .temperature else { return .other }
+        var iterator = key.utf8.makeIterator()
+        guard let first = iterator.next(), first == UInt8(ascii: "T"),
+              let second = iterator.next() else { return .other }
+        switch second {
+        case UInt8(ascii: "C"), UInt8(ascii: "c"): return .cpuTemp
+        case UInt8(ascii: "G"), UInt8(ascii: "g"): return .gpuTemp
+        case UInt8(ascii: "H"), UInt8(ascii: "B"), UInt8(ascii: "a"), UInt8(ascii: "W"): return .systemTemp
+        default: return .other
+        }
+    }
+}
+
 struct SensorReading: Identifiable, Sendable {
     let id: String
     let name: String
     let category: SensorCategory
     var value: Double
     let key: String
+    let role: SensorRole
+
+    init(id: String, name: String, category: SensorCategory, value: Double, key: String) {
+        self.id = id
+        self.name = name
+        self.category = category
+        self.value = value
+        self.key = key
+        self.role = SensorRole.classify(key: key, category: category)
+    }
+
+    var isCPUTemp: Bool { role == .cpuTemp }
+    var isGPUTemp: Bool { role == .gpuTemp }
+    var isSystemTemp: Bool { role == .systemTemp }
 
     var formattedValue: String {
         switch category {

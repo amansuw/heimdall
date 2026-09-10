@@ -11,15 +11,18 @@ class GPUState {
             limit: 8
         )
     }
-    var historyRange: HistoryRange = .fiveMinutes
+    var historyRange: HistoryRange = .fiveMinutes {
+        didSet {
+            guard oldValue != historyRange else { return }
+            refreshFilteredHistory()
+        }
+    }
     var history = RingBuffer<GPUSnapshot>(capacity: 1800)
     var processHistory: ProcessHistory?
 
-    var filteredHistory: [GPUSnapshot] {
-        let all = history.toArray()
-        let cutoff = Date().addingTimeInterval(-historyRange.window)
-        return all.filter { $0.timestamp >= cutoff }
-    }
+    /// Snapshots inside the selected window. Recomputed only when the history
+    /// grows or the range changes — never on a SwiftUI render pass.
+    private(set) var filteredHistory: [GPUSnapshot] = []
 
     func apply(_ result: GPUReaderResult, recordHistory: Bool = true) {
         usage = result.usage
@@ -30,6 +33,11 @@ class GPUState {
                 renderUtilization: result.usage.renderUtilization,
                 tilerUtilization: result.usage.tilerUtilization
             ))
+            refreshFilteredHistory()
         }
+    }
+
+    private func refreshFilteredHistory() {
+        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }
