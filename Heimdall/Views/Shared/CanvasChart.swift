@@ -530,12 +530,15 @@ struct CanvasMultiLineChart: View {
         let color: Color
         let label: String
         let dashed: Bool
+        /// Optional area fill beneath the line.
+        let fillColor: Color?
 
-        init(points: [ChartPoint], color: Color, label: String = "", dashed: Bool = false) {
+        init(points: [ChartPoint], color: Color, label: String = "", dashed: Bool = false, fillColor: Color? = nil) {
             self.points = points
             self.color = color
             self.label = label
             self.dashed = dashed
+            self.fillColor = fillColor
         }
 
         /// Convenience: build from any timestamped snapshot array.
@@ -544,13 +547,15 @@ struct CanvasMultiLineChart: View {
             value: (T) -> Double?,
             color: Color,
             label: String = "",
-            dashed: Bool = false
+            dashed: Bool = false,
+            fillColor: Color? = nil
         ) {
             self.init(
                 points: samples.map { ChartPoint(time: $0.timestamp, value: value($0)) },
                 color: color,
                 label: label,
-                dashed: dashed
+                dashed: dashed,
+                fillColor: fillColor
             )
         }
     }
@@ -613,6 +618,17 @@ struct CanvasMultiLineChart: View {
                     let style: StrokeStyle = s.dashed
                         ? StrokeStyle(lineWidth: 1.5, dash: [4, 3])
                         : StrokeStyle(lineWidth: 1.5)
+                    if let fill = s.fillColor {
+                        // Close each contiguous run down to the baseline so gaps stay unfilled.
+                        for segment in segments where segment.count >= 2 {
+                            var area = Path()
+                            area.move(to: CGPoint(x: segment[0].x, y: plotH))
+                            for point in segment { area.addLine(to: point) }
+                            area.addLine(to: CGPoint(x: segment[segment.count - 1].x, y: plotH))
+                            area.closeSubpath()
+                            context.fill(area, with: .color(fill))
+                        }
+                    }
                     strokeSegments(segments, in: context, color: s.color, style: style)
                 }
 
@@ -707,5 +723,134 @@ struct CanvasGauge: View {
             context.stroke(valuePath, with: .color(color),
                          style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
         }
+    }
+}
+
+// MARK: - Shared History Card
+
+/// Legend derived from the chart's own series, so it cannot drift from what is drawn.
+struct ChartLegend: View {
+    let series: [CanvasMultiLineChart.Series]
+
+    var body: some View {
+        let anyDashed = series.contains { $0.dashed }
+        HStack(spacing: 16) {
+            ForEach(Array(series.enumerated()), id: \.offset) { _, item in
+                HStack(spacing: 4) {
+                    if anyDashed {
+                        ChartLineSwatch(color: item.color, dashed: item.dashed)
+                    } else {
+                        Circle().fill(item.color).frame(width: 6, height: 6)
+                    }
+                    Text(item.label).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .font(.caption2)
+    }
+}
+
+/// Shown until enough samples exist to draw a line.
+struct ChartEmptyState: View {
+    var height: CGFloat = 150
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Collecting data…").font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+    }
+}
+
+/// The title + range picker + chart + legend card that CPU, GPU, Memory, Disk,
+/// Network and the Dashboard all previously spelled out for themselves.
+struct HistoryChartCard<Accessory: View, Subheader: View>: View {
+    let title: String
+    var icon: String? = nil
+    @Binding var range: HistoryRange
+    let series: [CanvasMultiLineChart.Series]
+    var yRange: ClosedRange<Double>? = nil
+    var yFormatter: (Double) -> String = { String(format: "%.0f", $0) }
+    var tooltipFormatter: (Double) -> String = { String(format: "%.1f", $0) }
+    var height: CGFloat = 150
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var subheader: () -> Subheader
+
+    private var hasData: Bool {
+        series.contains { $0.points.filter { $0.value != nil }.count >= 2 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                if let icon { Image(systemName: icon).foregroundStyle(.blue) }
+                Text(title).font(.headline)
+                Spacer()
+                accessory()
+            }
+
+            subheader()
+
+            HStack(spacing: 6) {
+                Text("Range").font(.caption).foregroundStyle(.secondary)
+                Picker("Range", selection: $range) {
+                    ForEach(HistoryRange.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("History range")
+            }
+
+            if hasData {
+                CanvasMultiLineChart(
+                    series: series,
+                    window: range.window,
+                    yRange: yRange,
+                    yFormatter: yFormatter,
+                    tooltipFormatter: tooltipFormatter
+                )
+                .frame(height: height)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(title) chart, last \(range.rawValue)")
+                .accessibilityValue(accessibilitySummary)
+
+                ChartLegend(series: series)
+            } else {
+                ChartEmptyState(height: height)
+            }
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Latest value of each series, so VoiceOver conveys the same thing a sighted
+    /// user reads off the right edge of the chart.
+    private var accessibilitySummary: String {
+        series.compactMap { item -> String? in
+            guard let latest = item.points.last(where: { $0.value != nil })?.value else { return nil }
+            return "\(item.label) \(tooltipFormatter(latest))"
+        }
+        .joined(separator: ", ")
+    }
+}
+
+extension HistoryChartCard where Accessory == EmptyView, Subheader == EmptyView {
+    init(
+        title: String,
+        icon: String? = nil,
+        range: Binding<HistoryRange>,
+        series: [CanvasMultiLineChart.Series],
+        yRange: ClosedRange<Double>? = nil,
+        yFormatter: @escaping (Double) -> String = { String(format: "%.0f", $0) },
+        tooltipFormatter: @escaping (Double) -> String = { String(format: "%.1f", $0) },
+        height: CGFloat = 150
+    ) {
+        self.init(title: title, icon: icon, range: range, series: series, yRange: yRange,
+                  yFormatter: yFormatter, tooltipFormatter: tooltipFormatter, height: height,
+                  accessory: { EmptyView() }, subheader: { EmptyView() })
     }
 }
