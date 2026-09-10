@@ -40,24 +40,24 @@ class ProfileState {
     /// copies disagreed: one set fan.controlMode and the other only posted the
     /// notification, so activating the same profile from different places could
     /// leave the mode picker out of step with what the fans were actually doing.
-    func activate(_ profile: FanProfile, on fan: FanState) {
+    func activate(_ profile: FanProfile, on fan: FanState, commands: AppCommands) {
         setActiveProfile(profile)
 
         switch profile.mode {
         case .automatic:
             fan.activeCurve = nil
             fan.controlMode = .automatic
-            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.automatic)
+            commands.setControlMode(.automatic)
         case .manual:
             guard let speed = profile.manualSpeedPercentage else { return }
             fan.manualSpeedPercentage = speed
             fan.controlMode = .manual
-            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.manual)
+            commands.setControlMode(.manual)
         case .curve:
             guard let curve = profile.curve else { return }
             fan.activeCurve = curve
             fan.controlMode = .curve
-            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
+            commands.setControlMode(.curve)
         }
     }
 

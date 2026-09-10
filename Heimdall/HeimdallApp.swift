@@ -15,6 +15,7 @@ struct HeimdallApp: App {
             SettingsView()
                 .environment(AppSettings.shared)
                 .environment(appDelegate.fanState)
+                .environment(appDelegate.commands)
         }
         .commands {
             // Without these the standard Edit shortcuts do not exist, so text fields
@@ -44,13 +45,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarDisplayTimer: DispatchSourceTimer?
     private var windowVisibilityObservers: [Any] = []
 
-    // Notification observers
-    private var observers: [Any] = []
-
     /// The dashboard window, created on demand. Held so it can be re-shown.
     private var mainWindowController: NSWindowController?
 
     let settings = AppSettings.shared
+
+    /// Handed to views through the environment in place of NotificationCenter posts.
+    lazy var commands = AppCommands(
+        fanController: fanController,
+        coordinator: coordinator,
+        showMainWindow: { [weak self] in self?.showMainWindow() }
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The login-item state can change outside the app (System Settings), so
@@ -59,7 +64,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         profileState.loadProfiles()
         setupCoordinator()
         setupStatusBar()
-        setupNotificationHandlers()
         setupWindowVisibilityTracking()
         fanController.restoreWriteAccessSilently()
 
@@ -106,6 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environment(fanState)
             .environment(profileState)
             .environment(AppSettings.shared)
+            .environment(commands)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1050, height: 750),
@@ -171,6 +176,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environment(sensorState)
             .environment(fanState)
             .environment(profileState)
+            .environment(commands)
 
         let hostingController = NSHostingController(rootView: popoverView)
         statusBarController.cpuState = cpuState
@@ -252,51 +258,5 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if desired == .regular {
             NSApp.activate(ignoringOtherApps: true)
         }
-    }
-
-    private func setupNotificationHandlers() {
-        observers.append(
-            NotificationCenter.default.addObserver(forName: .openMainWindow, object: nil, queue: .main) { [weak self] _ in
-                self?.showMainWindow()
-            }
-        )
-
-        observers.append(
-            NotificationCenter.default.addObserver(forName: .requestFanAccess, object: nil, queue: .main) { [weak self] _ in
-                self?.fanController.requestAdminAccess()
-            }
-        )
-
-        observers.append(
-            NotificationCenter.default.addObserver(forName: .fanControlModeChanged, object: nil, queue: .main) { [weak self] notif in
-                if let mode = notif.object as? FanControlMode {
-                    self?.fanController.setControlMode(mode)
-                    self?.coordinator.boostFastPollingTemporarily()
-                }
-            }
-        )
-
-        observers.append(
-            NotificationCenter.default.addObserver(forName: .fanSetAllAuto, object: nil, queue: .main) { [weak self] _ in
-                self?.fanController.setAllFansAuto()
-                self?.coordinator.boostFastPollingTemporarily()
-            }
-        )
-
-        observers.append(
-            NotificationCenter.default.addObserver(forName: .fanSetAllSpeed, object: nil, queue: .main) { [weak self] notif in
-                if let speed = notif.object as? Double {
-                    self?.fanController.setAllFansSpeed(percentage: speed)
-                    self?.coordinator.boostFastPollingTemporarily()
-                }
-            }
-        )
-
-        observers.append(
-            NotificationCenter.default.addObserver(forName: .fanApplyManual, object: nil, queue: .main) { [weak self] _ in
-                self?.fanController.applyManualSpeed()
-                self?.coordinator.boostFastPollingTemporarily()
-            }
-        )
     }
 }
