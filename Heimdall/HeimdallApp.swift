@@ -16,11 +16,23 @@ struct HeimdallApp: App {
                 .environment(appDelegate.sensorState)
                 .environment(appDelegate.fanState)
                 .environment(appDelegate.profileState)
+                .environment(AppSettings.shared)
                 .frame(minWidth: 900, minHeight: 650)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: true))
         .defaultSize(width: 1050, height: 750)
+        .commands {
+            // Without these the standard Edit shortcuts do not exist, so text fields
+            // in the curve editor and the rename dialog had no Cmd-A/C/V/Z.
+            TextEditingCommands()
+        }
+
+        Settings {
+            SettingsView()
+                .environment(AppSettings.shared)
+                .environment(appDelegate.fanState)
+        }
     }
 }
 
@@ -47,7 +59,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Notification observers
     private var observers: [Any] = []
 
+    let settings = AppSettings.shared
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The login-item state can change outside the app (System Settings), so
+        // re-read it rather than trusting what was stored.
+        settings.refreshLaunchAtLogin()
         profileState.loadProfiles()
         setupCoordinator()
         setupStatusBar()
