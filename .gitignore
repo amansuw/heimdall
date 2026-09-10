@@ -35,3 +35,7 @@ boreas
 # Agent worktrees (Claude Code)
 .claude/worktrees/
 .claude/
+
+# Built app bundles — ship these as GitHub Release assets, not in the repo
+/Heimdall.app/
+/Release/
