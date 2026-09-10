@@ -15,10 +15,10 @@ struct PopoverView: View {
         VStack(spacing: 0) {
             // Temperature cards
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                MiniStatCard(label: "CPU Avg", value: sensors.averageCPUTemp, color: tempColor(sensors.averageCPUTemp))
-                MiniStatCard(label: "GPU Avg", value: sensors.averageGPUTemp, color: tempColor(sensors.averageGPUTemp))
-                MiniStatCard(label: "CPU Peak", value: sensors.hottestCPUTemp, color: tempColor(sensors.hottestCPUTemp))
-                MiniStatCard(label: "GPU Peak", value: sensors.hottestGPUTemp, color: tempColor(sensors.hottestGPUTemp))
+                MiniStatCard(label: "CPU Avg", value: sensors.averageCPUTemp, color: MetricColor.temperature(sensors.averageCPUTemp))
+                MiniStatCard(label: "GPU Avg", value: sensors.averageGPUTemp, color: MetricColor.temperature(sensors.averageGPUTemp))
+                MiniStatCard(label: "CPU Peak", value: sensors.hottestCPUTemp, color: MetricColor.temperature(sensors.hottestCPUTemp))
+                MiniStatCard(label: "GPU Peak", value: sensors.hottestGPUTemp, color: MetricColor.temperature(sensors.hottestGPUTemp))
             }
             .padding(.horizontal, 10)
             .padding(.top, 8)
@@ -46,9 +46,9 @@ struct PopoverView: View {
 
             // System stats row
             HStack(spacing: 6) {
-                MiniGauge(label: "CPU", percent: cpu.usage.total, color: usageColor(cpu.usage.total))
-                MiniGauge(label: "GPU", percent: gpu.usage.utilization, color: usageColor(gpu.usage.utilization))
-                MiniGauge(label: "RAM", percent: ram.memory.usagePercent, color: usageColor(ram.memory.usagePercent))
+                MiniGauge(label: "CPU", percent: cpu.usage.total, color: MetricColor.usage(cpu.usage.total))
+                MiniGauge(label: "GPU", percent: gpu.usage.utilization, color: MetricColor.usage(gpu.usage.utilization))
+                MiniGauge(label: "RAM", percent: ram.memory.usagePercent, color: MetricColor.usage(ram.memory.usagePercent))
                 VStack(spacing: 1) {
                     Text("↓ " + ByteFormatter.formatSpeed(network.stats.downloadBytesPerSec))
                         .font(.system(size: 8, weight: .medium, design: .rounded)).foregroundStyle(.blue)
@@ -132,21 +132,7 @@ struct PopoverView: View {
         .frame(width: 380)
     }
 
-    private func tempColor(_ t: Double) -> Color {
-        if t <= 0 || t < 35 { return .gray }
-        if t < 56 { return .green }
-        if t < 75 { return .yellow }
-        if t < 90 { return .orange }
-        return .red
-    }
 
-    private func usageColor(_ v: Double) -> Color {
-        if v <= 20 { return .blue }
-        if v <= 40 { return .green }
-        if v <= 60 { return .yellow }
-        if v <= 80 { return .orange }
-        return .red
-    }
 
     private func activateProfile(_ profile: FanProfile) {
         profileState.setActiveProfile(profile)

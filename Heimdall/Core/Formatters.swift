@@ -1,4 +1,64 @@
 import Foundation
+import SwiftUI
+
+// MARK: - Metric Colors
+
+/// The single source of truth for how a metric maps to a color.
+/// Every gauge, bar, chart tint and progress view in the app goes through here
+/// so the same number always reads as the same color.
+enum MetricColor {
+    /// Percentage ladder (0-100) used for CPU / GPU / RAM / disk utilization.
+    static func usage(_ percent: Double) -> Color {
+        if percent <= 20 { return .blue }
+        if percent <= 40 { return .green }
+        if percent <= 60 { return .yellow }
+        if percent <= 80 { return .orange }
+        return .red
+    }
+
+    /// Temperature ladder in degrees Celsius.
+    /// Non-positive readings mean "no sensor value" and render gray.
+    static func temperature(_ celsius: Double) -> Color {
+        if celsius <= 0 || celsius < 35 { return .gray }
+        if celsius < 56 { return .green }
+        if celsius < 75 { return .yellow }
+        if celsius < 90 { return .orange }
+        return .red
+    }
+}
+
+// MARK: - Volume Filtering
+
+/// Classifies mounted volumes by their mount path.
+///
+/// `DiskInfo.id` is the volume's mount path, so the traits we need (local vs.
+/// network, writable vs. read-only) can be recovered without changing the
+/// reader. Results are cached because these traits are fixed for the lifetime
+/// of a mount and the lookup is called from a view body.
+@MainActor
+enum VolumeFilter {
+    private static var cache: [String: Bool] = [:]
+
+    /// True when the volume mounted at `mountPath` is a local, writable volume,
+    /// i.e. not a network share and not a read-only mount such as a Time
+    /// Machine snapshot or a sealed system image.
+    ///
+    /// Note: the macOS root volume reports as writable here even though `/`
+    /// itself is sealed, because Foundation resolves the firmlinked data
+    /// volume — so the boot disk is correctly kept.
+    static func isLocalWritable(mountPath: String) -> Bool {
+        if let cached = cache[mountPath] { return cached }
+        let keys: Set<URLResourceKey> = [.volumeIsLocalKey, .volumeIsReadOnlyKey]
+        let values = try? URL(fileURLWithPath: mountPath).resourceValues(forKeys: keys)
+        // Missing values mean we could not classify it; keep the volume rather
+        // than hiding a disk the user can see in Finder.
+        let isLocal = values?.volumeIsLocal ?? true
+        let isReadOnly = values?.volumeIsReadOnly ?? false
+        let result = isLocal && !isReadOnly
+        cache[mountPath] = result
+        return result
+    }
+}
 
 enum ByteFormatter {
     static func format(_ bytes: UInt64) -> String {

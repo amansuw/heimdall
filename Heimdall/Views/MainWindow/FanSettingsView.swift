@@ -192,7 +192,7 @@ struct FanSettingsView: View {
                 }
             }
             ProgressView(value: max(0, min(f.speedPercentage, 100)), total: 100)
-                .tint(speedColor(f.speedPercentage))
+                .tint(MetricColor.usage(f.speedPercentage))
             HStack {
                 Text(String(format: "%.0f RPM", f.minSpeed)).font(.caption2).foregroundStyle(.secondary)
                 Spacer()
@@ -1050,13 +1050,6 @@ struct FanSettingsView: View {
         }
     }
 
-    private func speedColor(_ pct: Double) -> Color {
-        if pct <= 20 { return .blue }
-        if pct <= 40 { return .green }
-        if pct <= 60 { return .yellow }
-        if pct <= 80 { return .orange }
-        return .red
-    }
 
     private func profileColor(_ profile: FanProfile) -> Color {
         switch profile.name {

@@ -18,13 +18,13 @@ struct GPUView: View {
                 HStack(spacing: 16) {
                     GaugeCard(title: "Utilization", percent: gpu.usage.utilization,
                               subtitle: String(format: "%.1f%%", gpu.usage.utilization),
-                              icon: "square.3.layers.3d.top.filled", color: gaugeColor(gpu.usage.utilization))
+                              icon: "square.3.layers.3d.top.filled", color: MetricColor.usage(gpu.usage.utilization))
                     GaugeCard(title: "Renderer", percent: gpu.usage.renderUtilization,
                               subtitle: String(format: "%.1f%%", gpu.usage.renderUtilization),
-                              icon: "paintbrush.fill", color: gaugeColor(gpu.usage.renderUtilization))
+                              icon: "paintbrush.fill", color: MetricColor.usage(gpu.usage.renderUtilization))
                     GaugeCard(title: "Tiler", percent: gpu.usage.tilerUtilization,
                               subtitle: String(format: "%.1f%%", gpu.usage.tilerUtilization),
-                              icon: "square.grid.3x3.fill", color: gaugeColor(gpu.usage.tilerUtilization))
+                              icon: "square.grid.3x3.fill", color: MetricColor.usage(gpu.usage.tilerUtilization))
                 }
                 .padding(.horizontal)
 
@@ -92,13 +92,6 @@ struct GPUView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func gaugeColor(_ v: Double) -> Color {
-        if v <= 20 { return .blue }
-        if v <= 40 { return .green }
-        if v <= 60 { return .yellow }
-        if v <= 80 { return .orange }
-        return .red
-    }
 
     private func legendDot(color: Color, label: String) -> some View {
         HStack(spacing: 4) { Circle().fill(color).frame(width: 6, height: 6); Text(label).foregroundStyle(.secondary) }

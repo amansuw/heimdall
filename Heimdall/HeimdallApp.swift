@@ -154,9 +154,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusBarController.setup(popoverContent: hostingController)
 
-        // Menu-bar tint tracks CPU temp — 30s matches background sample rate.
+        // Cheap: reads already-sampled state, issues no SMC calls. Kept short so a
+        // menu bar readout tracks the sampler instead of lagging a whole cycle.
         let displayTimer = DispatchSource.makeTimerSource(queue: .main)
-        displayTimer.schedule(deadline: .now(), repeating: 30.0, leeway: .seconds(1))
+        displayTimer.schedule(deadline: .now(), repeating: 5.0, leeway: .seconds(1))
         displayTimer.setEventHandler { [weak self] in
             self?.statusBarController.updateWidget()
         }
