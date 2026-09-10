@@ -12,6 +12,7 @@ struct DashboardView: View {
     @Environment(BatteryState.self) private var battery
 
     var body: some View {
+        @Bindable var sensorBinding = sensors
         ScrollView {
             VStack(spacing: 20) {
                 // Header
@@ -83,21 +84,26 @@ struct DashboardView: View {
                 .padding(.horizontal)
 
                 // Temperature history chart
-                VStack(alignment: .leading, spacing: 8) {
-                    @Bindable var sensorBinding = sensors
-                    HStack(spacing: 6) {
-                        Text("Range")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("Range", selection: $sensorBinding.historyRange) {
-                            ForEach(HistoryRange.allCases) { range in
-                                Text(range.rawValue).tag(range)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                HistoryChartCard(
+                    title: "Temperature History",
+                    icon: "chart.xyaxis.line",
+                    range: $sensorBinding.historyRange,
+                    series: [
+                        .init(sensors.filteredHistory, value: { $0.avgCPU }, color: .blue, label: "CPU Avg"),
+                        .init(sensors.filteredHistory, value: { $0.maxCPU }, color: .blue, label: "CPU Peak", dashed: true),
+                        .init(sensors.filteredHistory, value: { $0.avgGPU }, color: .green, label: "GPU Avg"),
+                        .init(sensors.filteredHistory, value: { $0.maxGPU }, color: .green, label: "GPU Peak", dashed: true),
+                    ],
+                    yFormatter: { String(format: "%.0f°", $0) },
+                    tooltipFormatter: { String(format: "%.1f°", $0) },
+                    height: 180
+                ) {
+                    if let last = sensors.filteredHistory.last {
+                        Text("CPU \(tempText(last.avgCPU)) · GPU \(tempText(last.avgGPU))")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    DashboardTempChart(history: sensors.filteredHistory, window: sensors.historyRange.window)
+                } subheader: {
+                    EmptyView()
                 }
                 .padding(.horizontal)
 
@@ -187,6 +193,12 @@ struct DashboardView: View {
     }
 
 
+    /// A missing reading renders as an em dash rather than a misleading 0.
+    private func tempText(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.0f°", value)
+    }
+
     private func dashPresetButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
@@ -274,60 +286,6 @@ struct StatCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-struct DashboardTempChart: View {
-    let history: [TemperatureSnapshot]
-    let window: TimeInterval
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "chart.xyaxis.line").foregroundStyle(.blue)
-                Text("Temperature History").font(.headline)
-                Spacer()
-                if let last = history.last {
-                    Text("CPU \(tempLabel(last.avgCPU)) · GPU \(tempLabel(last.avgGPU))")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            if history.count >= 2 {
-                CanvasMultiLineChart(series: [
-                    .init(history, value: { $0.avgCPU }, color: .blue, label: "CPU Avg"),
-                    .init(history, value: { $0.maxCPU }, color: .blue, label: "CPU Peak", dashed: true),
-                    .init(history, value: { $0.avgGPU }, color: .green, label: "GPU Avg"),
-                    .init(history, value: { $0.maxGPU }, color: .green, label: "GPU Peak", dashed: true),
-                ], window: window, yFormatter: { String(format: "%.0f°", $0) }, tooltipFormatter: { String(format: "%.1f°", $0) })
-                .frame(height: 180)
-            } else {
-                HStack { Spacer(); ProgressView(); Text("Collecting data...").font(.caption).foregroundStyle(.secondary); Spacer() }
-                    .padding(.vertical, 30)
-            }
-
-            HStack(spacing: 16) {
-                legendLine(color: .blue, label: "CPU Avg")
-                legendLine(color: .blue, label: "CPU Peak", dashed: true)
-                legendLine(color: .green, label: "GPU Avg")
-                legendLine(color: .green, label: "GPU Peak", dashed: true)
-            }
-            .font(.caption2)
-        }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func tempLabel(_ value: Double?) -> String {
-        guard let value else { return "—" }
-        return String(format: "%.0f°", value)
-    }
-
-    private func legendLine(color: Color, label: String, dashed: Bool = false) -> some View {
-        HStack(spacing: 4) {
-            ChartLineSwatch(color: color, dashed: dashed)
-            Text(label).foregroundStyle(.secondary)
-        }
     }
 }
 

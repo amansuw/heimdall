@@ -4,6 +4,7 @@ struct NetworkView: View {
     @Environment(NetworkState.self) private var net
 
     var body: some View {
+        @Bindable var netBinding = net
         ScrollView {
             VStack(spacing: 20) {
                 HStack {
@@ -37,44 +38,16 @@ struct NetworkView: View {
                 .padding(.horizontal)
 
                 // History chart
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Traffic History").font(.headline)
-                    @Bindable var netBinding = net
-                    HStack(spacing: 6) {
-                        Text("Range")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("Range", selection: $netBinding.historyRange) {
-                            ForEach(HistoryRange.allCases) { range in
-                                Text(range.rawValue).tag(range)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
-
-                    let historyArray = net.filteredHistory
-                    if historyArray.count >= 2 {
-                        CanvasMultiLineChart(
-                            series: [
-                                .init(historyArray, value: { Double($0.downloadBytesPerSec) }, color: .blue, label: "Download"),
-                                .init(historyArray, value: { Double($0.uploadBytesPerSec) }, color: .green, label: "Upload"),
-                            ],
-                            window: net.historyRange.window,
-                            yFormatter: { ByteFormatter.formatSpeed($0) },
-                            tooltipFormatter: { ByteFormatter.formatSpeed($0) }
-                        )
-                        .frame(height: 150)
-                        HStack(spacing: 16) {
-                            legendDot(color: .blue, label: "Download")
-                            legendDot(color: .green, label: "Upload")
-                        }.font(.caption2)
-                    } else {
-                        ProgressView().frame(height: 100)
-                    }
-                }
-                .padding()
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                HistoryChartCard(
+                    title: "Traffic History",
+                    range: $netBinding.historyRange,
+                    series: [
+                        .init(net.filteredHistory, value: { Double($0.downloadBytesPerSec) }, color: .blue, label: "Download"),
+                        .init(net.filteredHistory, value: { Double($0.uploadBytesPerSec) }, color: .green, label: "Upload"),
+                    ],
+                    yFormatter: { ByteFormatter.formatSpeed($0) },
+                    tooltipFormatter: { ByteFormatter.formatSpeed($0) }
+                )
                 .padding(.horizontal)
 
                 // Totals
@@ -137,7 +110,4 @@ struct NetworkView: View {
         }
     }
 
-    private func legendDot(color: Color, label: String) -> some View {
-        HStack(spacing: 4) { Circle().fill(color).frame(width: 6, height: 6); Text(label).foregroundStyle(.secondary) }
-    }
 }

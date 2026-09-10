@@ -4,6 +4,7 @@ struct CPUView: View {
     @Environment(CPUState.self) private var cpu
 
     var body: some View {
+        @Bindable var cpuBinding = cpu
         ScrollView {
             VStack(spacing: 20) {
                 HStack {
@@ -55,41 +56,18 @@ struct CPUView: View {
                 }
 
                 // Usage history
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Usage History").font(.headline)
-                    @Bindable var cpuBinding = cpu
-                    HStack(spacing: 6) {
-                        Text("Range")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("Range", selection: $cpuBinding.historyRange) {
-                            ForEach(HistoryRange.allCases) { range in
-                                Text(range.rawValue).tag(range)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
-
-                    let historyArray = cpu.filteredHistory
-                    if historyArray.count >= 2 {
-                        CanvasMultiLineChart(series: [
-                            .init(historyArray, value: { $0.total }, color: .blue, label: "Total"),
-                            .init(historyArray, value: { $0.user }, color: .green, label: "User"),
-                            .init(historyArray, value: { $0.system }, color: .orange, label: "System"),
-                        ], window: cpu.historyRange.window, yRange: 0...100)
-                        .frame(height: 150)
-                        HStack(spacing: 16) {
-                            legendDot(color: .blue, label: "Total")
-                            legendDot(color: .green, label: "User")
-                            legendDot(color: .orange, label: "System")
-                        }.font(.caption2)
-                    } else {
-                        ProgressView().frame(height: 100)
-                    }
-                }
-                .padding()
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                HistoryChartCard(
+                    title: "Usage History",
+                    range: $cpuBinding.historyRange,
+                    series: [
+                        .init(cpu.filteredHistory, value: { $0.total }, color: .blue, label: "Total"),
+                        .init(cpu.filteredHistory, value: { $0.user }, color: .green, label: "User"),
+                        .init(cpu.filteredHistory, value: { $0.system }, color: .orange, label: "System"),
+                    ],
+                    yRange: 0...100,
+                    yFormatter: { String(format: "%.0f%%", $0) },
+                    tooltipFormatter: { String(format: "%.1f%%", $0) }
+                )
                 .padding(.horizontal)
 
                 // Load averages + Frequency
@@ -157,9 +135,6 @@ struct CPUView: View {
         }
     }
 
-    private func legendDot(color: Color, label: String) -> some View {
-        HStack(spacing: 4) { Circle().fill(color).frame(width: 6, height: 6); Text(label).foregroundStyle(.secondary) }
-    }
 }
 
 /// Single core usage bar with hover percentage.

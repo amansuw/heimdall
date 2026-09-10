@@ -4,6 +4,7 @@ struct RAMView: View {
     @Environment(RAMState.self) private var ram
 
     var body: some View {
+        @Bindable var ramBinding = ram
         ScrollView {
             VStack(spacing: 20) {
                 HStack {
@@ -46,40 +47,16 @@ struct RAMView: View {
                 .padding(.horizontal)
 
                 // Usage history
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Usage History").font(.headline)
-                    @Bindable var ramBinding = ram
-                    HStack(spacing: 6) {
-                        Text("Range")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("Range", selection: $ramBinding.historyRange) {
-                            ForEach(HistoryRange.allCases) { range in
-                                Text(range.rawValue).tag(range)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
-
-                    let historyArray = ram.filteredHistory
-                    if historyArray.count >= 2 {
-                        CanvasLineChart(
-                            historyArray,
-                            window: ram.historyRange.window,
-                            value: { $0.usagePercent },
-                            color: pressureColor,
-                            fillColor: pressureColor.opacity(0.15),
-                            yRange: 0...100,
-                            label: "Usage %"
-                        )
-                        .frame(height: 150)
-                    } else {
-                        ProgressView().frame(height: 100)
-                    }
-                }
-                .padding()
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                HistoryChartCard(
+                    title: "Usage History",
+                    range: $ramBinding.historyRange,
+                    series: [.init(ram.filteredHistory, value: { $0.usagePercent },
+                                   color: pressureColor, label: "Usage",
+                                   fillColor: pressureColor.opacity(0.15))],
+                    yRange: 0...100,
+                    yFormatter: { String(format: "%.0f%%", $0) },
+                    tooltipFormatter: { String(format: "%.1f%%", $0) }
+                )
                 .padding(.horizontal)
 
                 ProcessListView(title: "Top Memory Processes", processes: ram.topProcesses, processHistory: ram.processHistory)

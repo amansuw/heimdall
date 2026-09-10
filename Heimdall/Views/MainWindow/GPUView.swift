@@ -4,6 +4,7 @@ struct GPUView: View {
     @Environment(GPUState.self) private var gpu
 
     var body: some View {
+        @Bindable var gpuBinding = gpu
         ScrollView {
             VStack(spacing: 20) {
                 HStack {
@@ -29,41 +30,18 @@ struct GPUView: View {
                 .padding(.horizontal)
 
                 // Usage history
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Usage History").font(.headline)
-                    @Bindable var gpuBinding = gpu
-                    HStack(spacing: 6) {
-                        Text("Range")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("Range", selection: $gpuBinding.historyRange) {
-                            ForEach(HistoryRange.allCases) { range in
-                                Text(range.rawValue).tag(range)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
-
-                    let historyArray = gpu.filteredHistory
-                    if historyArray.count >= 2 {
-                        CanvasMultiLineChart(series: [
-                            .init(historyArray, value: { $0.utilization }, color: .blue, label: "Total"),
-                            .init(historyArray, value: { $0.renderUtilization }, color: .green, label: "Renderer"),
-                            .init(historyArray, value: { $0.tilerUtilization }, color: .orange, label: "Tiler"),
-                        ], window: gpu.historyRange.window, yRange: 0...100)
-                        .frame(height: 150)
-                        HStack(spacing: 16) {
-                            legendDot(color: .blue, label: "Total")
-                            legendDot(color: .green, label: "Renderer")
-                            legendDot(color: .orange, label: "Tiler")
-                        }.font(.caption2)
-                    } else {
-                        ProgressView().frame(height: 100)
-                    }
-                }
-                .padding()
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                HistoryChartCard(
+                    title: "Usage History",
+                    range: $gpuBinding.historyRange,
+                    series: [
+                        .init(gpu.filteredHistory, value: { $0.utilization }, color: .blue, label: "Total"),
+                        .init(gpu.filteredHistory, value: { $0.renderUtilization }, color: .green, label: "Renderer"),
+                        .init(gpu.filteredHistory, value: { $0.tilerUtilization }, color: .orange, label: "Tiler"),
+                    ],
+                    yRange: 0...100,
+                    yFormatter: { String(format: "%.0f%%", $0) },
+                    tooltipFormatter: { String(format: "%.1f%%", $0) }
+                )
                 .padding(.horizontal)
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -93,7 +71,4 @@ struct GPUView: View {
     }
 
 
-    private func legendDot(color: Color, label: String) -> some View {
-        HStack(spacing: 4) { Circle().fill(color).frame(width: 6, height: 6); Text(label).foregroundStyle(.secondary) }
-    }
 }

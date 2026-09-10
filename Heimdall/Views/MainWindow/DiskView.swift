@@ -4,6 +4,7 @@ struct DiskView: View {
     @Environment(DiskState.self) private var disk
 
     var body: some View {
+        @Bindable var diskBinding = disk
         ScrollView {
             VStack(spacing: 20) {
                 HStack {
@@ -35,48 +36,28 @@ struct DiskView: View {
                     .padding(.horizontal)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("I/O Throughput").font(.headline)
+                HistoryChartCard(
+                    title: "I/O Throughput",
+                    range: $diskBinding.historyRange,
+                    series: [
+                        .init(disk.filteredHistory, value: { Double($0.readBytesPerSec) }, color: .blue, label: "Read"),
+                        .init(disk.filteredHistory, value: { Double($0.writeBytesPerSec) }, color: .green, label: "Write"),
+                    ],
+                    yFormatter: { ByteFormatter.formatSpeed($0) },
+                    tooltipFormatter: { ByteFormatter.formatSpeed($0) },
+                    height: 120
+                ) {
+                    EmptyView()
+                } subheader: {
                     HStack(spacing: 20) {
-                        HStack {
-                            Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
-                            Text("Read: \(ByteFormatter.formatSpeed(disk.io.readBytesPerSec))").font(.callout)
-                        }
-                        HStack {
-                            Image(systemName: "arrow.up.circle.fill").foregroundStyle(.green)
-                            Text("Write: \(ByteFormatter.formatSpeed(disk.io.writeBytesPerSec))").font(.callout)
-                        }
+                        Label("Read: \(ByteFormatter.formatSpeed(disk.io.readBytesPerSec))", systemImage: "arrow.down.circle.fill")
+                            .foregroundStyle(.blue)
+                        Label("Write: \(ByteFormatter.formatSpeed(disk.io.writeBytesPerSec))", systemImage: "arrow.up.circle.fill")
+                            .foregroundStyle(.green)
+                        Spacer()
                     }
-                    @Bindable var diskBinding = disk
-                    HStack(spacing: 6) {
-                        Text("Range")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("Range", selection: $diskBinding.historyRange) {
-                            ForEach(HistoryRange.allCases) { range in
-                                Text(range.rawValue).tag(range)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
-
-                    let historyArray = disk.filteredHistory
-                    if historyArray.count >= 2 {
-                        CanvasMultiLineChart(
-                            series: [
-                                .init(historyArray, value: { Double($0.readBytesPerSec) }, color: .blue, label: "Read"),
-                                .init(historyArray, value: { Double($0.writeBytesPerSec) }, color: .green, label: "Write"),
-                            ],
-                            window: disk.historyRange.window,
-                            yFormatter: { ByteFormatter.formatSpeed($0) },
-                            tooltipFormatter: { ByteFormatter.formatSpeed($0) }
-                        )
-                        .frame(height: 120)
-                    }
+                    .font(.callout)
                 }
-                .padding()
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
 
                 ProcessListView(title: "Top Disk Processes", processes: disk.topProcesses, processHistory: disk.processHistory)
