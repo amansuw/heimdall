@@ -153,11 +153,7 @@ struct DashboardView: View {
                                 }
 
                                 Button("Activate") {
-                                    profileState.setActiveProfile(latest)
-                                    if let c = latest.curve {
-                                        fan.activeCurve = c
-                                        NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
-                                    }
+                                    profileState.activate(latest, on: fan)
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.mini)
