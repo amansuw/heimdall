@@ -8,6 +8,14 @@ struct FanSettingsView: View {
     @State private var renamingProfile: FanProfile?
     @State private var renameText = ""
 
+    /// Applying a fan target costs ~2.4s of SMC writes, so continuous controls (sliders, text
+    /// fields) coalesce into a single trailing apply instead of one per step.
+    @State private var manualApplyWork: DispatchWorkItem?
+    @State private var curveApplyWork: DispatchWorkItem?
+    private static let applyDebounce: TimeInterval = 0.25
+
+    private static let speedPresets: [Int] = [1, 25, 50, 75, 100]
+
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -214,11 +222,13 @@ struct FanSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("0%").font(.caption2).foregroundStyle(.secondary)
-                    Slider(value: $fanBinding.manualSpeedPercentage, in: 0...100, step: 1)
-                        .onChange(of: fan.manualSpeedPercentage) { _, _ in
-                            guard ensureWriteAccess() else { return }
-                            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
-                        }
+                    Slider(value: $fanBinding.manualSpeedPercentage, in: 0...100, step: 1) { editing in
+                        // Apply the moment the drag ends; intermediate steps are debounced.
+                        if !editing { applyManualSpeed(debounced: false) }
+                    }
+                    .onChange(of: fan.manualSpeedPercentage) { _, _ in
+                        applyManualSpeed(debounced: true)
+                    }
                     Text("100%").font(.caption2).foregroundStyle(.secondary)
                 }
                 Text(String(format: "%.0f%%", fan.manualSpeedPercentage))
@@ -229,30 +239,13 @@ struct FanSettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Quick Presets").font(.subheadline).fontWeight(.medium)
                     HStack(spacing: 8) {
-                        presetButton("Min", isActive: fan.manualSpeedPercentage == 1) {
-                            guard ensureWriteAccess() else { return }
-                            fan.manualSpeedPercentage = 1
-                            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
-                        }
-                        presetButton("25%", isActive: fan.manualSpeedPercentage == 25) {
-                            guard ensureWriteAccess() else { return }
-                            fan.manualSpeedPercentage = 25
-                            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
-                        }
-                        presetButton("50%", isActive: fan.manualSpeedPercentage == 50) {
-                            guard ensureWriteAccess() else { return }
-                            fan.manualSpeedPercentage = 50
-                            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
-                        }
-                        presetButton("75%", isActive: fan.manualSpeedPercentage == 75) {
-                            guard ensureWriteAccess() else { return }
-                            fan.manualSpeedPercentage = 75
-                            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
-                        }
-                        presetButton("Max", isActive: fan.manualSpeedPercentage == 100) {
-                            guard ensureWriteAccess() else { return }
-                            fan.manualSpeedPercentage = 100
-                            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
+                        ForEach(Self.speedPresets, id: \.self) { percent in
+                            presetButton(presetLabel(percent),
+                                         isActive: fan.manualSpeedPercentage == Double(percent)) {
+                                guard ensureWriteAccess() else { return }
+                                fan.manualSpeedPercentage = Double(percent)
+                                applyManualSpeed(debounced: false)
+                            }
                         }
                     }
                 }
@@ -270,12 +263,56 @@ struct FanSettingsView: View {
     @State private var hasUnsavedProfileChanges = false
     @State private var editingProfileMode: FanProfileMode = .curve
     @State private var curveHoverLocation: CGPoint? = nil
+    @State private var draggingPointID: UUID? = nil
+    @State private var isDraggingCurve = false
 
+    private static let curveMinTemp: Double = 20
+    private static let curveMaxTemp: Double = 110
+    /// Minimum °C between adjacent control points.
+    private static let minPointSpacing: Double = 1
+    /// How close (in points) a click must be to grab an existing control point / the curve line.
+    private static let pointGrabRadius: CGFloat = 12
+    private static let lineGrabRadius: CGFloat = 10
+    /// Horizontal clearance a click needs from existing points before it inserts a new one.
+    private static let minInsertDistance: CGFloat = 20
+
+    /// Pushes the edited curve into live state right away (cheap) but coalesces the notification
+    /// that kicks off the SMC write sequence (expensive).
     private func autoApplyCurve() {
         guard ensureWriteAccess() else { return }
         curve.sensorKey = selectedSensorKey
         fan.activeCurve = curve
-        NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
+
+        curveApplyWork?.cancel()
+        let work = DispatchWorkItem {
+            NotificationCenter.default.post(name: .fanControlModeChanged, object: FanControlMode.curve)
+        }
+        curveApplyWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.applyDebounce, execute: work)
+    }
+
+    /// Requests a manual-speed apply, either immediately (gesture ended, preset tapped) or
+    /// coalesced with the other changes in this drag.
+    private func applyManualSpeed(debounced: Bool) {
+        guard ensureWriteAccess() else { return }
+
+        manualApplyWork?.cancel()
+        let work = DispatchWorkItem {
+            NotificationCenter.default.post(name: .fanApplyManual, object: nil)
+        }
+        manualApplyWork = work
+
+        if debounced {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.applyDebounce, execute: work)
+        } else {
+            work.perform()
+        }
+    }
+
+    private func presetLabel(_ percent: Int) -> String {
+        if percent <= 1 { return "Min" }
+        if percent >= 100 { return "Max" }
+        return "\(percent)%"
     }
 
     private func markProfileEdited() {
@@ -358,7 +395,8 @@ struct FanSettingsView: View {
 
     @ViewBuilder
     private var profileCurveEditor: some View {
-        curveEditorContent(autoApplyLive: false)
+        // Profile edits are staged until Apply, so they only mark the profile dirty.
+        curveEditorContent(onEdit: markProfileEdited, onReset: nil)
     }
 
     // MARK: - Live Fan Curve (control mode, no profile selected)
@@ -367,14 +405,23 @@ struct FanSettingsView: View {
     private var liveFanCurveSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Fan Curve").font(.headline)
-            curveEditorContent(autoApplyLive: true)
+            curveEditorContent(onEdit: autoApplyCurve, onReset: {
+                let name = curve.name
+                curve = FanCurve(name: name)
+                selectedSensorKey = curve.sensorKey
+                autoApplyCurve()
+            })
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
     }
 
+    /// - Parameters:
+    ///   - onEdit: called whenever the curve changes (live apply, or mark the profile dirty).
+    ///   - onReset: when non-nil, shows a Reset row running this closure.
     @ViewBuilder
-    private func curveEditorContent(autoApplyLive: Bool) -> some View {
+    private func curveEditorContent(onEdit: @escaping () -> Void,
+                                    onReset: (() -> Void)?) -> some View {
         // Sensor picker
         HStack {
             Text("Sensor:").font(.caption).foregroundStyle(.secondary)
@@ -415,11 +462,9 @@ struct FanSettingsView: View {
                                 handleDrag(value: value, size: size)
                             }
                             .onEnded { _ in
-                                if autoApplyLive {
-                                    autoApplyCurve()
-                                } else {
-                                    markProfileEdited()
-                                }
+                                draggingPointID = nil
+                                isDraggingCurve = false
+                                onEdit()
                             }
                     )
 
@@ -432,11 +477,7 @@ struct FanSettingsView: View {
         .frame(height: 220)
         .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
         .onChange(of: selectedSensorKey) { _, _ in
-            if autoApplyLive {
-                autoApplyCurve()
-            } else {
-                markProfileEdited()
-            }
+            onEdit()
         }
 
         // Axis labels
@@ -455,11 +496,7 @@ struct FanSettingsView: View {
                 Spacer()
                 Button(action: {
                     addPoint()
-                    if autoApplyLive {
-                        autoApplyCurve()
-                    } else {
-                        markProfileEdited()
-                    }
+                    onEdit()
                 }) {
                     Image(systemName: "plus.circle.fill").foregroundStyle(.blue)
                 }
@@ -467,21 +504,16 @@ struct FanSettingsView: View {
             }
 
             ForEach(curve.sortedPoints) { point in
-                editablePointRow(point: point, autoApplyLive: autoApplyLive)
+                editablePointRow(point: point, onEdit: onEdit)
             }
         }
 
         // Reset curve (live editor only — profile editor uses header Reset)
-        if autoApplyLive {
+        if let onReset {
             HStack {
                 Spacer()
-                Button("Reset") {
-                    let name = curve.name
-                    curve = FanCurve(name: name)
-                    selectedSensorKey = curve.sensorKey
-                    autoApplyCurve()
-                }
-                .controlSize(.small)
+                Button("Reset", action: onReset)
+                    .controlSize(.small)
             }
         }
     }
@@ -489,7 +521,7 @@ struct FanSettingsView: View {
     // MARK: - Editable Point Row
 
     @ViewBuilder
-    private func editablePointRow(point: CurvePoint, autoApplyLive: Bool) -> some View {
+    private func editablePointRow(point: CurvePoint, onEdit: @escaping () -> Void) -> some View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 // Temp field
@@ -497,8 +529,9 @@ struct FanSettingsView: View {
                     TextField("", value: Binding(
                         get: { Int(point.temperature) },
                         set: {
-                            curve.updatePoint(id: point.id, temperature: max(20, min(110, Double($0))))
-                            if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                            curve.updatePoint(id: point.id,
+                                              temperature: constrainedTemperature(Double($0), for: point.id))
+                            onEdit()
                         }
                     ), format: .number)
                     .textFieldStyle(.roundedBorder)
@@ -516,7 +549,7 @@ struct FanSettingsView: View {
                         get: { Int(point.fanSpeed) },
                         set: {
                             curve.updatePoint(id: point.id, fanSpeed: max(0, min(100, Double($0))))
-                            if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                            onEdit()
                         }
                     ), format: .number)
                     .textFieldStyle(.roundedBorder)
@@ -531,7 +564,7 @@ struct FanSettingsView: View {
                 if curve.points.count > 2 {
                     Button {
                         removePoint(id: point.id)
-                        if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                        onEdit()
                     } label: {
                         Image(systemName: "minus.circle.fill").foregroundStyle(.red).font(.caption)
                     }
@@ -544,10 +577,10 @@ struct FanSettingsView: View {
                 Image(systemName: "thermometer").font(.caption2).foregroundStyle(.secondary).frame(width: 12)
                 Slider(value: Binding(
                     get: { point.temperature },
-                    set: { curve.updatePoint(id: point.id, temperature: $0) }
+                    set: { curve.updatePoint(id: point.id, temperature: constrainedTemperature($0, for: point.id)) }
                 ), in: 20...110, step: 1)
                 .onChange(of: point.temperature) { _, _ in
-                    if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                    onEdit()
                 }
                 .controlSize(.mini)
             }
@@ -558,7 +591,7 @@ struct FanSettingsView: View {
                     set: { curve.updatePoint(id: point.id, fanSpeed: $0) }
                 ), in: 0...100, step: 1)
                 .onChange(of: point.fanSpeed) { _, _ in
-                    if autoApplyLive { autoApplyCurve() } else { markProfileEdited() }
+                    onEdit()
                 }
                 .controlSize(.mini)
             }
@@ -899,24 +932,99 @@ struct FanSettingsView: View {
         }
     }
 
-    private func handleDrag(value: DragGesture.Value, size: CGSize) {
-        let temp = (value.location.x / size.width) * 90 + 20
-        let speed = (1 - value.location.y / size.height) * 100
-        let clampedTemp = max(20, min(110, temp))
-        let clampedSpeed = max(0, min(100, speed))
-
-        if let nearest = curve.sortedPoints.min(by: { abs($0.temperature - clampedTemp) < abs($1.temperature - clampedTemp) }) {
-            let dist = abs(nearest.temperature - clampedTemp)
-            if dist < 8 {
-                curve.updatePoint(id: nearest.id, temperature: clampedTemp, fanSpeed: clampedSpeed)
-            }
+    /// Clamps a dragged/typed temperature between its immediate neighbours so a point can never
+    /// be moved past them and scramble the curve's order.
+    private func constrainedTemperature(_ temp: Double, for id: UUID) -> Double {
+        let sorted = curve.sortedPoints
+        guard let index = sorted.firstIndex(where: { $0.id == id }) else {
+            return max(Self.curveMinTemp, min(Self.curveMaxTemp, temp))
         }
+        let lower = index > 0 ? sorted[index - 1].temperature + Self.minPointSpacing : Self.curveMinTemp
+        let upper = index < sorted.count - 1 ? sorted[index + 1].temperature - Self.minPointSpacing : Self.curveMaxTemp
+        guard lower <= upper else { return sorted[index].temperature }
+        return max(lower, min(upper, temp))
     }
 
+    private func handleDrag(value: DragGesture.Value, size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+
+        let temp = (value.location.x / size.width) * (Self.curveMaxTemp - Self.curveMinTemp) + Self.curveMinTemp
+        let speed = (1 - value.location.y / size.height) * 100
+        let clampedTemp = max(Self.curveMinTemp, min(Self.curveMaxTemp, temp))
+        let clampedSpeed = max(0, min(100, speed))
+
+        // Pick the grabbed point once, at the start of the gesture, and keep dragging that one —
+        // otherwise sweeping past the curve mid-drag would grab or insert points by accident.
+        if !isDraggingCurve {
+            isDraggingCurve = true
+            draggingPointID = pointID(near: value.location, size: size)
+                ?? insertPointOnCurve(atTemperature: clampedTemp, location: value.location, size: size)
+        }
+
+        guard let id = draggingPointID else { return }
+        curve.updatePoint(id: id,
+                          temperature: constrainedTemperature(clampedTemp, for: id),
+                          fanSpeed: clampedSpeed)
+    }
+
+    /// Nearest control point within the grab radius, measured in view space so the vertical
+    /// distance counts too.
+    private func pointID(near location: CGPoint, size: CGSize) -> UUID? {
+        let candidates = curve.sortedPoints.map { point -> (UUID, CGFloat) in
+            let position = canvasPosition(for: point, size: size)
+            return (point.id, hypot(position.x - location.x, position.y - location.y))
+        }
+        guard let best = candidates.min(by: { $0.1 < $1.1 }), best.1 <= Self.pointGrabRadius else { return nil }
+        return best.0
+    }
+
+    /// Clicking on the curve line itself inserts a control point there.
+    private func insertPointOnCurve(atTemperature temp: Double, location: CGPoint, size: CGSize) -> UUID? {
+        let speedOnCurve = curve.speedForTemperature(temp)
+        let yOnCurve = size.height - (CGFloat(speedOnCurve) / 100.0) * size.height
+        guard abs(yOnCurve - location.y) <= Self.lineGrabRadius else { return nil }
+
+        // Don't stack a new point on top of an existing one.
+        let tooClose = curve.sortedPoints.contains { point in
+            abs(canvasPosition(for: point, size: size).x - location.x) < Self.minInsertDistance
+                || abs(point.temperature - temp) < Self.minPointSpacing
+        }
+        guard !tooClose else { return nil }
+
+        let point = CurvePoint(temperature: temp, fanSpeed: speedOnCurve)
+        curve.addPoint(point)
+        return point.id
+    }
+
+    private func canvasPosition(for point: CurvePoint, size: CGSize) -> CGPoint {
+        let span = Self.curveMaxTemp - Self.curveMinTemp
+        return CGPoint(
+            x: ((point.temperature - Self.curveMinTemp) / span) * size.width,
+            y: size.height - (CGFloat(point.fanSpeed) / 100.0) * size.height
+        )
+    }
+
+    /// Splits the widest temperature gap, so a new point never lands on top of an existing one.
     private func addPoint() {
         let sorted = curve.sortedPoints
-        let midTemp = ((sorted.first?.temperature ?? 30) + (sorted.last?.temperature ?? 90)) / 2
-        curve.addPoint(CurvePoint(temperature: midTemp, fanSpeed: 50))
+        guard sorted.count >= 2 else {
+            let temp = (Self.curveMinTemp + Self.curveMaxTemp) / 2
+            curve.addPoint(CurvePoint(temperature: temp, fanSpeed: curve.speedForTemperature(temp)))
+            return
+        }
+
+        var widestIndex = 0
+        var widestGap = -Double.infinity
+        for i in 0..<(sorted.count - 1) {
+            let gap = sorted[i + 1].temperature - sorted[i].temperature
+            if gap > widestGap {
+                widestGap = gap
+                widestIndex = i
+            }
+        }
+
+        let temp = (sorted[widestIndex].temperature + sorted[widestIndex + 1].temperature) / 2
+        curve.addPoint(CurvePoint(temperature: temp, fanSpeed: curve.speedForTemperature(temp)))
     }
 
     private func removePoint(id: UUID) {

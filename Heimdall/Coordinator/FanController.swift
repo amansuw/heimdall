@@ -19,6 +19,22 @@ class FanController {
 
     private var pendingFanSpeeds: [(Int, Double)]?
 
+    /// Guards the coalescing state below, which is touched from both the caller's thread and
+    /// `helperQueue`.
+    private let applyLock = NSLock()
+    /// Monotonic id for the newest requested target. A queued write block whose generation is
+    /// stale has been superseded and exits without touching the SMC.
+    private var applyGeneration: UInt64 = 0
+    private var lastAppliedPercentage: Double?
+    private var lastAppliedAt: Date = .distantPast
+
+    /// A repeat request within this many percentage points is treated as a no-op.
+    private let manualApplyEpsilon: Double = 0.5
+    /// Curve re-evaluation only re-applies when the computed target moved at least this much.
+    private let curveApplyEpsilon: Double = 2.0
+    /// Re-apply an unchanged target at least this often, in case the SMC drifted back.
+    private let applyRefreshInterval: TimeInterval = 60
+
     // MARK: - Init
 
     func discoverFans() {
@@ -279,16 +295,10 @@ class FanController {
     private func setFanTargetWrite(fanIndex: Int, speed: Double) -> Bool {
         var success = false
 
+        // Encode against the key's own data type rather than assuming fpe2.
         func encodeSpeed(_ key: String) -> [UInt8]? {
             guard let val = smc.readKey(key) else { return nil }
-            let dt = val.dataType.trimmingCharacters(in: .whitespaces)
-            if dt == "flt" {
-                let f = Float(speed)
-                return withUnsafeBytes(of: f) { Array($0) }
-            } else {
-                let s = Int(speed)
-                return [UInt8(s >> 6), UInt8((s << 2) ^ ((s >> 6) << 8))]
-            }
+            return smc.encodeSpeed(speed, dataType: val.dataType)
         }
 
         if let bytes = encodeSpeed("F\(fanIndex)Tg") {
@@ -345,35 +355,98 @@ class FanController {
     }
 
     func setAllFansSpeed(percentage: Double) {
-        guard let fans = fanState?.fans else { return }
-        let label = percentage == 100 ? "Max" : "\(Int(percentage))%"
+        forceFans(toPercent: percentage, label: percentage == 100 ? "Max" : "\(Int(percentage))%")
+    }
+
+    // MARK: - Coalesced Forced Writes
+
+    private func nextApplyGeneration() -> UInt64 {
+        applyLock.lock()
+        defer { applyLock.unlock() }
+        applyGeneration &+= 1
+        return applyGeneration
+    }
+
+    private func isCurrentGeneration(_ generation: UInt64) -> Bool {
+        applyLock.lock()
+        defer { applyLock.unlock() }
+        return generation == applyGeneration
+    }
+
+    private func markApplied(percentage: Double) {
+        applyLock.lock()
+        lastAppliedPercentage = percentage
+        lastAppliedAt = Date()
+        applyLock.unlock()
+    }
+
+    /// Forgets the last applied target so the next request always reaches the SMC.
+    private func invalidateLastApplied() {
+        applyLock.lock()
+        lastAppliedPercentage = nil
+        lastAppliedAt = .distantPast
+        applyLock.unlock()
+    }
+
+    /// True when `percentage` is close enough to what we already wrote — and written recently
+    /// enough — that repeating the ~2.4s write sequence would be pure churn.
+    private func shouldSkipApply(percentage: Double, epsilon: Double) -> Bool {
+        applyLock.lock()
+        defer { applyLock.unlock() }
+        guard let last = lastAppliedPercentage else { return false }
+        guard Date().timeIntervalSince(lastAppliedAt) < applyRefreshInterval else { return false }
+        return abs(last - percentage) < epsilon
+    }
+
+    /// Single implementation of the forced-speed write sequence used by manual, preset and
+    /// curve control. Requests are coalesced: only the newest one performs SMC writes, so a
+    /// slider drag no longer leaves the fans chasing dozens of stale setpoints.
+    private func forceFans(toPercent percentage: Double, label: String? = nil) {
+        guard let fans = fanState?.fans, !fans.isEmpty else { return }
+
+        let targets = fans.map { $0.minSpeed + ($0.maxSpeed - $0.minSpeed) * (percentage / 100.0) }
+
+        // Reflect the request in the UI immediately, whether or not the writes are skipped.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let count = self.fanState?.fans.count else { return }
+            for i in 0..<min(count, targets.count) {
+                self.fanState?.fans[i].targetSpeed = targets[i]
+                self.fanState?.fans[i].isManual = true
+                if let label { self.fanState?.fans[i].selectedSpeedLabel = label }
+            }
+        }
+
+        let generation = nextApplyGeneration()
 
         helperQueue.async { [weak self] in
             guard let self else { return }
+            // Superseded while queued, or already at this target.
+            guard self.isCurrentGeneration(generation) else { return }
+            guard !self.shouldSkipApply(percentage: percentage, epsilon: self.manualApplyEpsilon) else { return }
+
             for _ in 0..<3 {
                 for (i, fan) in fans.enumerated() {
-                    let speed = fan.minSpeed + (fan.maxSpeed - fan.minSpeed) * (percentage / 100.0)
                     _ = self.setFanModeWrite(fanIndex: fan.index, mode: .forced)
-                    _ = self.setFanTargetWrite(fanIndex: fan.index, speed: speed)
-                    DispatchQueue.main.async {
-                        if i < (self.fanState?.fans.count ?? 0) {
-                            self.fanState?.fans[i].targetSpeed = speed
-                            self.fanState?.fans[i].isManual = true
-                            self.fanState?.fans[i].selectedSpeedLabel = label
-                        }
-                    }
+                    _ = self.setFanTargetWrite(fanIndex: fan.index, speed: targets[i])
                 }
+                self.markApplied(percentage: percentage)
+
                 Thread.sleep(forTimeInterval: 0.3)
                 if let mdVal = self.privilegedReadDouble(key: "F0Md"), mdVal == 1.0 { break }
                 _ = self.smcWrite(key: "Ftst", bytes: [0x01])
                 Thread.sleep(forTimeInterval: 0.5)
                 self.forceTestModeActive = false
+
+                // A newer target arrived mid-retry; let it take over.
+                guard self.isCurrentGeneration(generation) else { return }
             }
         }
     }
 
     func setControlMode(_ mode: FanControlMode) {
         fanState?.controlMode = mode
+        // A mode switch must always reach the SMC, even if the target percentage is unchanged.
+        invalidateLastApplied()
         switch mode {
         case .automatic:
             fanState?.activeCurve = nil
@@ -396,35 +469,11 @@ class FanController {
     }
 
     func applyManualSpeed() {
-        guard let fans = fanState?.fans else { return }
-        let pct = fanState?.manualSpeedPercentage ?? 50.0
-
-        helperQueue.async { [weak self] in
-            guard let self else { return }
-            for _ in 0..<3 {
-                for (i, fan) in fans.enumerated() {
-                    let speed = fan.minSpeed + (fan.maxSpeed - fan.minSpeed) * (pct / 100.0)
-                    _ = self.setFanModeWrite(fanIndex: fan.index, mode: .forced)
-                    _ = self.setFanTargetWrite(fanIndex: fan.index, speed: speed)
-                    DispatchQueue.main.async {
-                        if i < (self.fanState?.fans.count ?? 0) {
-                            self.fanState?.fans[i].targetSpeed = speed
-                            self.fanState?.fans[i].isManual = true
-                        }
-                    }
-                }
-                Thread.sleep(forTimeInterval: 0.3)
-                if let mdVal = self.privilegedReadDouble(key: "F0Md"), mdVal == 1.0 { break }
-                _ = self.smcWrite(key: "Ftst", bytes: [0x01])
-                Thread.sleep(forTimeInterval: 0.5)
-                self.forceTestModeActive = false
-            }
-        }
+        forceFans(toPercent: fanState?.manualSpeedPercentage ?? 50.0)
     }
 
     func applyFanCurveSpeed(temperature: Double, curve: FanCurve, allowImmediateOff: Bool = false) {
         let percentage = curve.speedForTemperature(temperature)
-        guard let fans = fanState?.fans else { return }
         let now = Date()
 
         if percentage > 0 {
@@ -452,31 +501,15 @@ class FanController {
         if !curveFansForced { curveFansForced = true }
         DispatchQueue.main.async { self.fanState?.isCurveCooldownActive = false }
 
-        helperQueue.async { [weak self] in
-            guard let self else { return }
-            for _ in 0..<3 {
-                for (i, fan) in fans.enumerated() {
-                    let speed = fan.minSpeed + (fan.maxSpeed - fan.minSpeed) * (percentage / 100.0)
-                    _ = self.setFanModeWrite(fanIndex: fan.index, mode: .forced)
-                    _ = self.setFanTargetWrite(fanIndex: fan.index, speed: speed)
-                    DispatchQueue.main.async {
-                        if i < (self.fanState?.fans.count ?? 0) {
-                            self.fanState?.fans[i].targetSpeed = speed
-                            self.fanState?.fans[i].isManual = true
-                        }
-                    }
-                }
-                Thread.sleep(forTimeInterval: 0.3)
-                if let mdVal = self.privilegedReadDouble(key: "F0Md"), mdVal == 1.0 { break }
-                _ = self.smcWrite(key: "Ftst", bytes: [0x01])
-                Thread.sleep(forTimeInterval: 0.5)
-                self.forceTestModeActive = false
-            }
-        }
+        forceFans(toPercent: percentage)
     }
 
     private func resetToAutomatic() {
         guard let fans = fanState?.fans else { return }
+
+        // Fans are no longer forced, so the next forced request must not be deduped away.
+        invalidateLastApplied()
+        _ = nextApplyGeneration()
 
         helperQueue.async { [weak self] in
             guard let self else { return }
@@ -498,6 +531,16 @@ class FanController {
               let curve = fanState?.activeCurve else { return }
         let temp = curveSensorTemp(for: curve.sensorKey)
         guard temp > 0 else { return }
+
+        // This runs on every fast tick (1-2s) while a write sequence takes ~2.4s, so only
+        // enqueue one when the target has actually moved. The zero case still goes through so
+        // the cooldown / reset-to-automatic logic keeps running.
+        let target = curve.speedForTemperature(temp)
+        if target > 0, curveFansForced,
+           shouldSkipApply(percentage: target, epsilon: curveApplyEpsilon) {
+            return
+        }
+
         applyFanCurveSpeed(temperature: temp, curve: curve)
     }
 
