@@ -79,6 +79,10 @@
 		6CB0ECF0B8D84383B3374B47 /* HelperInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = F29A2105CEB74854BB375B8A /* HelperInstaller.swift */; };
 		F3D46EA178574214873B85EA /* CodeIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2067D7549FE4BE596405C19 /* CodeIdentityTests.swift */; };
 		94B4BEF704174230AB3D1301 /* HelperInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E258F986F340BEB6E6BFC7 /* HelperInstallerTests.swift */; };
+		DA78B73942E94682936A6AD8 /* PowerReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F590BF424D6460A88D7A28D /* PowerReader.swift */; };
+		3F31ABF279C4430AAB0E5A86 /* PowerReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F590BF424D6460A88D7A28D /* PowerReader.swift */; };
+		1EB93F4982E1483DB0C2002C /* PowerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A21F30376A482FACCB8674 /* PowerState.swift */; };
+		B3F264A89EA546A5AEACC1C5 /* PowerReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9365B1C71004401CA3A3D3F8 /* PowerReaderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -149,6 +153,9 @@
 		F29A2105CEB74854BB375B8A /* HelperInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperInstaller.swift; sourceTree = "<group>"; };
 		B2067D7549FE4BE596405C19 /* CodeIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeIdentityTests.swift; sourceTree = "<group>"; };
 		E8E258F986F340BEB6E6BFC7 /* HelperInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelperInstallerTests.swift; sourceTree = "<group>"; };
+		6F590BF424D6460A88D7A28D /* PowerReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerReader.swift; sourceTree = "<group>"; };
+		43A21F30376A482FACCB8674 /* PowerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerState.swift; sourceTree = "<group>"; };
+		9365B1C71004401CA3A3D3F8 /* PowerReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerReaderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -235,6 +242,7 @@
 				82A91EFA753243A8A0A0C814 /* DiskReader.swift */,
 				A8F037E4DA53428680FF8B39 /* GPUReader.swift */,
 				2DD3079AFBF840F18B2BAB42 /* NetworkReader.swift */,
+				6F590BF424D6460A88D7A28D /* PowerReader.swift */,
 				72684ADCAF1E46DD950E4A69 /* ProcessReader.swift */,
 				F76E6688C3AA43EE98B1D341 /* RAMReader.swift */,
 				CA28AF4ED12845358B89271F /* SensorReader.swift */,
@@ -251,6 +259,7 @@
 				08D0AF1D57E04032A96101DF /* CPUState.swift */,
 				ECFFDE0A263F4F47B761F4E8 /* DiskState.swift */,
 				0BB91150E9A748539A37F0BD /* FanState.swift */,
+				43A21F30376A482FACCB8674 /* PowerState.swift */,
 				A1D006C2537A4B3BA0A8249E /* GPUState.swift */,
 				A7DCE407C96D44559BB943A4 /* NetworkState.swift */,
 				1F4550B8AA9447B9A18A1B03 /* RAMState.swift */,
@@ -359,6 +368,7 @@
 		541DE245DF22430AB789447D /* HeimdallTests */ = {
 			isa = PBXGroup;
 			children = (
+				9365B1C71004401CA3A3D3F8 /* PowerReaderTests.swift */,
 				B2067D7549FE4BE596405C19 /* CodeIdentityTests.swift */,
 				E8E258F986F340BEB6E6BFC7 /* HelperInstallerTests.swift */,
 				5DDD022CB170473BA0CC0E2E /* TestSupport.swift */,
@@ -487,6 +497,7 @@
 				8EC5648E98B345638ED53494 /* DiskReader.swift in Sources */,
 				E1A709F707854A14864B91C0 /* GPUReader.swift in Sources */,
 				71AB87B592844B678AEEF709 /* NetworkReader.swift in Sources */,
+				DA78B73942E94682936A6AD8 /* PowerReader.swift in Sources */,
 				92D10014E052443C9CFEE037 /* ProcessReader.swift in Sources */,
 				714267A05F0642B98BF3BE65 /* RAMReader.swift in Sources */,
 				13512E0CC9E84739BEED68EB /* SensorReader.swift in Sources */,
@@ -494,6 +505,7 @@
 				C0C7CD4DDA204A58B1E39EBC /* CPUState.swift in Sources */,
 				9BAC6EEC66934A578E498CD9 /* DiskState.swift in Sources */,
 				63B69E01CF914DDF825CFB20 /* FanState.swift in Sources */,
+				1EB93F4982E1483DB0C2002C /* PowerState.swift in Sources */,
 				A36A4BADAD5D4EB1BE8B0793 /* GPUState.swift in Sources */,
 				76A62A9546D547D4B2E3C77E /* NetworkState.swift in Sources */,
 				801BF88100A0467D924CEEDB /* RAMState.swift in Sources */,
@@ -520,6 +532,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B3F264A89EA546A5AEACC1C5 /* PowerReaderTests.swift in Sources */,
+				3F31ABF279C4430AAB0E5A86 /* PowerReader.swift in Sources */,
 				8039F25E03BA48EAA130352E /* CodeIdentity.swift in Sources */,
 				6CB0ECF0B8D84383B3374B47 /* HelperInstaller.swift in Sources */,
 				F3D46EA178574214873B85EA /* CodeIdentityTests.swift in Sources */,

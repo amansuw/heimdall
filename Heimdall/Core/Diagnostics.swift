@@ -71,6 +71,7 @@ enum Diagnostics {
         var lines = ["## GPU"]
         lines.append("gpu-core-count: \(registryInt("gpu-core-count").map(String.init) ?? "unavailable")")
         lines.append("ANE present:    \(aneIsPresent() ? "yes" : "no")")
+        lines.append("IOReport energy: \(PowerReader().isAvailable ? "available" : "unavailable")")
         return lines
     }
 
