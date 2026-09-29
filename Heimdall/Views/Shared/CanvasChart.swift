@@ -1,10 +1,12 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Chart Insets (room for axis labels)
 
-/// Wide enough for the longest axis label ("976.6 KB/s"), and the same for
-/// every chart so their plots line up down the page.
-private let chartLeftPad: CGFloat = 58
+/// Axis label font. The gutter is measured with the same size.
+private let axisLabelSize: CGFloat = 9
+/// Space between a y label and the plot.
+private let axisLabelGap: CGFloat = 4
 private let chartBottomPad: CGFloat = 20
 /// Room above the top gridline for its label, so every label sits centred on
 /// its gridline instead of the end ones being nudged inward.
@@ -43,29 +45,33 @@ struct ChartPoint: Equatable {
 struct ChartTimeDomain: Equatable {
     let start: Date
     let end: Date
+    /// Width of the y-label gutter left of the plot, sized to this chart's
+    /// widest label so short labels ("80°") do not leave a wide empty margin.
+    let leftPad: CGFloat
 
     var span: TimeInterval { max(end.timeIntervalSince(start), 1) }
 
-    init(end: Date, window: TimeInterval) {
+    init(end: Date, window: TimeInterval, leftPad: CGFloat) {
         self.end = end
         self.start = end.addingTimeInterval(-max(window, 1))
+        self.leftPad = leftPad
     }
 
     func x(for time: Date, plotW: CGFloat) -> CGFloat {
         let frac = time.timeIntervalSince(start) / span
-        return chartLeftPad + CGFloat(min(max(frac, 0), 1)) * plotW
+        return leftPad + CGFloat(min(max(frac, 0), 1)) * plotW
     }
 
     /// Like `x(for:)` but not pinned to the plot. The sample just before the
     /// window lands left of the plot, so the line enters at the right slope
     /// and the canvas clip trims it.
     func unclampedX(for time: Date, plotW: CGFloat) -> CGFloat {
-        chartLeftPad + CGFloat(time.timeIntervalSince(start) / span) * plotW
+        leftPad + CGFloat(time.timeIntervalSince(start) / span) * plotW
     }
 
     func time(atX x: CGFloat, plotW: CGFloat) -> Date {
         guard plotW > 0 else { return end }
-        let frac = Double((x - chartLeftPad) / plotW)
+        let frac = Double((x - leftPad) / plotW)
         return start.addingTimeInterval(min(max(frac, 0), 1) * span)
     }
 }
@@ -74,9 +80,20 @@ struct ChartTimeDomain: Equatable {
 /// The right edge is the last sample, not wall-clock `Date()`. Hover used to
 /// call `Date()` on its own Canvas while the plot stayed frozen, so the dots
 /// sat to the left of the lines.
-private func makeDomain(_ pointSets: [[ChartPoint]], window: TimeInterval) -> ChartTimeDomain {
+private func makeDomain(_ pointSets: [[ChartPoint]], window: TimeInterval,
+                        scale: ChartYScale, yFormatter: (Double) -> String) -> ChartTimeDomain {
     let latest = pointSets.compactMap { $0.last?.time }.max() ?? Date()
-    return ChartTimeDomain(end: latest, window: window)
+    return ChartTimeDomain(end: latest, window: window, leftPad: yAxisGutter(scale: scale, formatter: yFormatter))
+}
+
+/// The widest tick label plus the gap to the plot, and a 2pt margin on the
+/// view's leading edge.
+private func yAxisGutter(scale: ChartYScale, formatter: (Double) -> String) -> CGFloat {
+    let font = NSFont.systemFont(ofSize: axisLabelSize)
+    let widest = scale.ticks.map { label in
+        (formatter(label) as NSString).size(withAttributes: [.font: font]).width
+    }.max() ?? 0
+    return ceil(widest) + axisLabelGap + 2
 }
 
 // MARK: - Axis Helpers
@@ -140,6 +157,7 @@ private func drawYAxis(
     _ context: GraphicsContext,
     size: CGSize,
     scale: ChartYScale,
+    leftPad: CGFloat,
     formatter: (Double) -> String
 ) {
     let plotH = size.height - chartBottomPad
@@ -149,12 +167,12 @@ private func drawYAxis(
         let frac = (val - scale.min) / scale.range
         let y = plotY(frac, plotBottom: plotH)
         var gridPath = Path()
-        gridPath.move(to: CGPoint(x: chartLeftPad, y: y))
+        gridPath.move(to: CGPoint(x: leftPad, y: y))
         gridPath.addLine(to: CGPoint(x: size.width, y: y))
         context.stroke(gridPath, with: .color(.secondary.opacity(0.12)), lineWidth: 0.5)
 
-        let label = Text(formatter(val)).font(.system(size: 9)).foregroundColor(.secondary)
-        context.draw(context.resolve(label), at: CGPoint(x: chartLeftPad - 4, y: y), anchor: .trailing)
+        let label = Text(formatter(val)).font(.system(size: axisLabelSize)).foregroundColor(.secondary)
+        context.draw(context.resolve(label), at: CGPoint(x: leftPad - axisLabelGap, y: y), anchor: .trailing)
     }
 }
 
@@ -190,7 +208,7 @@ private func drawXAxisTimes(
     domain: ChartTimeDomain,
     window: TimeInterval
 ) {
-    let plotW = size.width - chartLeftPad
+    let plotW = size.width - domain.leftPad
     let plotH = size.height - chartBottomPad
     guard plotW > 8, plotH > 0 else { return }
 
@@ -215,7 +233,7 @@ private func drawXAxisTimes(
 
         // Keep the first/last labels inside the plot instead of clipping them.
         let anchor: UnitPoint
-        if x - chartLeftPad < 16 { anchor = .leading }
+        if x - domain.leftPad < 16 { anchor = .leading }
         else if size.width - x < 16 { anchor = .trailing }
         else { anchor = .center }
 
@@ -255,8 +273,8 @@ private func chartSegments(
 
 /// The plot area, with a little headroom so a 1.5pt line on the top or
 /// bottom gridline is not shaved in half.
-private func plotClipRect(size: CGSize) -> CGRect {
-    CGRect(x: chartLeftPad, y: -2, width: size.width - chartLeftPad, height: size.height - chartBottomPad + 4)
+private func plotClipRect(size: CGSize, leftPad: CGFloat) -> CGRect {
+    CGRect(x: leftPad, y: -2, width: size.width - leftPad, height: size.height - chartBottomPad + 4)
 }
 
 private func strokeSegments(
@@ -367,15 +385,15 @@ private struct LinePlotCanvas: View {
     var body: some View {
         Canvas(rendersAsynchronously: false) { context, size in
             guard presentCount(points) >= 1 else { return }
-            let plotW = size.width - chartLeftPad
+            let plotW = size.width - domain.leftPad
             let plotH = size.height - chartBottomPad
             guard plotW > 0, plotH > 0 else { return }
 
-            drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
+            drawYAxis(context, size: size, scale: scale, leftPad: domain.leftPad, formatter: yFormatter)
             drawXAxisTimes(context, size: size, domain: domain, window: window)
 
             var context = context
-            context.clip(to: Path(plotClipRect(size: size)))
+            context.clip(to: Path(plotClipRect(size: size, leftPad: domain.leftPad)))
             let segments = chartSegments(points: points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
             if let fillColor {
                 for segment in segments where segment.count >= 2 {
@@ -401,9 +419,9 @@ private struct LineCrosshairCanvas: View {
 
     var body: some View {
         Canvas(rendersAsynchronously: false) { context, size in
-            let plotW = size.width - chartLeftPad
+            let plotW = size.width - domain.leftPad
             let plotH = size.height - chartBottomPad
-            guard plotW > 0, plotH > 0, hoverX >= chartLeftPad, hoverX <= size.width else { return }
+            guard plotW > 0, plotH > 0, hoverX >= domain.leftPad, hoverX <= size.width else { return }
             let hoverTime = domain.time(atX: hoverX, plotW: plotW)
             guard let idx = nearestIndex(in: points, to: hoverTime), let val = points[idx].value else { return }
             let snapX = domain.x(for: points[idx].time, plotW: plotW)
@@ -433,15 +451,15 @@ private struct MultiLinePlotCanvas: View {
         let pointSets = series.map(\.points)
         Canvas(rendersAsynchronously: false) { context, size in
             guard pointSets.contains(where: { presentCount($0) >= 1 }) else { return }
-            let plotW = size.width - chartLeftPad
+            let plotW = size.width - domain.leftPad
             let plotH = size.height - chartBottomPad
             guard plotW > 0, plotH > 0 else { return }
 
-            drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
+            drawYAxis(context, size: size, scale: scale, leftPad: domain.leftPad, formatter: yFormatter)
             drawXAxisTimes(context, size: size, domain: domain, window: window)
 
             var context = context
-            context.clip(to: Path(plotClipRect(size: size)))
+            context.clip(to: Path(plotClipRect(size: size, leftPad: domain.leftPad)))
             for s in series {
                 let segments = chartSegments(points: s.points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
                 let style: StrokeStyle = s.dashed
@@ -472,9 +490,9 @@ private struct MultiLineCrosshairCanvas: View {
     var body: some View {
         let reference = series.max { presentCount($0.points) < presentCount($1.points) }
         Canvas(rendersAsynchronously: false) { context, size in
-            let plotW = size.width - chartLeftPad
+            let plotW = size.width - domain.leftPad
             let plotH = size.height - chartBottomPad
-            guard plotW > 0, plotH > 0, hoverX >= chartLeftPad, hoverX <= size.width,
+            guard plotW > 0, plotH > 0, hoverX >= domain.leftPad, hoverX <= size.width,
                   let reference else { return }
             guard let refIdx = nearestIndex(in: reference.points, to: domain.time(atX: hoverX, plotW: plotW)) else { return }
             let snapTime = reference.points[refIdx].time
@@ -612,7 +630,7 @@ struct CanvasLineChart: View {
         )
     }
 
-    private var domain: ChartTimeDomain { makeDomain([points], window: window) }
+    private var domain: ChartTimeDomain { makeDomain([points], window: window, scale: scale, yFormatter: yFormatter) }
     private var scale: ChartYScale { chartYScale(for: [points], yRange: yRange) }
 
     var body: some View {
@@ -654,7 +672,7 @@ struct CanvasLineChart: View {
 
     @ViewBuilder
     private func lineTooltip(geo: GeometryProxy, hoverX: CGFloat) -> some View {
-        let plotW = geo.size.width - chartLeftPad
+        let plotW = geo.size.width - domain.leftPad
         let hoverTime = domain.time(atX: hoverX, plotW: plotW)
         if let idx = nearestIndex(in: points, to: hoverTime), let val = points[idx].value {
             let xPos = domain.x(for: points[idx].time, plotW: plotW)
@@ -664,7 +682,7 @@ struct CanvasLineChart: View {
             )
             .fixedSize()
             .allowsHitTesting(false)
-            .position(x: min(max(xPos, chartLeftPad + 40), max(geo.size.width - 40, chartLeftPad + 40)), y: 20)
+            .position(x: min(max(xPos, domain.leftPad + 40), max(geo.size.width - 40, domain.leftPad + 40)), y: 20)
         }
     }
 }
@@ -737,7 +755,7 @@ struct CanvasMultiLineChart: View {
 
     private var pointSets: [[ChartPoint]] { series.map(\.points) }
 
-    private var domain: ChartTimeDomain { makeDomain(pointSets, window: window) }
+    private var domain: ChartTimeDomain { makeDomain(pointSets, window: window, scale: scale, yFormatter: yFormatter) }
     private var scale: ChartYScale { chartYScale(for: pointSets, yRange: yRange, binary: binaryScale) }
 
     /// Series used to snap the shared crosshair: the one with the most samples.
@@ -780,7 +798,7 @@ struct CanvasMultiLineChart: View {
 
     @ViewBuilder
     private func multiTooltip(geo: GeometryProxy, hoverX: CGFloat) -> some View {
-        let plotW = geo.size.width - chartLeftPad
+        let plotW = geo.size.width - domain.leftPad
         if let reference = referenceSeries,
            let refIdx = nearestIndex(in: reference.points, to: domain.time(atX: hoverX, plotW: plotW)) {
             let snapTime = reference.points[refIdx].time
@@ -795,7 +813,7 @@ struct CanvasMultiLineChart: View {
                 ChartTooltip(header: clockSecondFormatter.string(from: snapTime), values: items)
                     .fixedSize()
                     .allowsHitTesting(false)
-                    .position(x: min(max(xPos, chartLeftPad + 50), max(geo.size.width - 50, chartLeftPad + 50)), y: 24)
+                    .position(x: min(max(xPos, domain.leftPad + 50), max(geo.size.width - 50, domain.leftPad + 50)), y: 24)
             }
         }
     }

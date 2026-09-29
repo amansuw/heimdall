@@ -20,6 +20,11 @@ class SensorReader {
     private let smc = SMCKit.shared
     private(set) var discoveredSensors: [(key: String, name: String, category: SensorCategory)] = []
     private(set) var isDiscovering = true
+    /// Last live reading of each die sensor. A powered-down sensor keeps it for
+    /// `dieHoldFor`, so the averages do not swing between the die and the
+    /// always-on sensors every time the GPU wakes for a frame.
+    private var lastLiveDie: [String: (value: Double, at: Date)] = [:]
+    static let dieHoldFor: TimeInterval = 60
 
     func discoverSensors() {
         isDiscovering = true
@@ -40,12 +45,16 @@ class SensorReader {
             guard let val = smc.readKey(key) else { continue }
             guard SensorLookup.isValidDataType(val.dataType, for: category) else { continue }
 
+            let role = SensorRole.classify(key: key, category: category)
             let hasNonZero = val.bytes.prefix(Int(val.dataSize)).contains(where: { $0 != 0 })
-            guard hasNonZero else { continue }
+            let isDie = role == .cpuTemp || role == .gpuTemp
+            guard hasNonZero || isDie else { continue }
 
-            guard let decoded = smc.decodeValue(val),
-                  decoded.isFinite,
-                  SensorLookup.isReasonableValue(decoded, for: category) else { continue }
+            // A die sensor on a sleeping cluster is still a sensor. Skipping it
+            // here meant a launch while the GPU slept found 6 GPU sensors, not 38.
+            guard let decoded = smc.decodeValue(val), decoded.isFinite,
+                  SensorLookup.isReasonableValue(decoded, for: category)
+                    || SensorLookup.isPoweredDownDieReading(decoded, role: role) else { continue }
 
             let name = SensorLookup.name(for: key)
             sensors.append((key: key, name: name, category: category))
@@ -79,11 +88,19 @@ class SensorReader {
         var cpuTempSum = 0.0, cpuTempMax = 0.0
         var gpuTempSum = 0.0, gpuTempMax = 0.0
 
+        let now = Date()
         for sensor in discoveredSensors {
-            guard let val = smc.readKey(sensor.key) else { continue }
-            guard let value = smc.decodeValue(val),
-                  value.isFinite,
-                  SensorLookup.isReasonableValue(value, for: sensor.category) else { continue }
+            guard let val = smc.readKey(sensor.key),
+                  var value = smc.decodeValue(val), value.isFinite else { continue }
+            let role = SensorRole.classify(key: sensor.key, category: sensor.category)
+            if SensorLookup.isPoweredDownDieReading(value, role: role) {
+                guard let held = lastLiveDie[sensor.key],
+                      now.timeIntervalSince(held.at) <= Self.dieHoldFor else { continue }
+                value = held.value
+            } else {
+                guard SensorLookup.isReasonableValue(value, for: sensor.category) else { continue }
+                if role == .cpuTemp || role == .gpuTemp { lastLiveDie[sensor.key] = (value, now) }
+            }
 
             let reading = SensorReading(id: sensor.key, name: sensor.name, category: sensor.category, value: value, key: sensor.key)
             all.append(reading)
