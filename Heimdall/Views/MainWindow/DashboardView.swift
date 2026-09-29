@@ -75,11 +75,11 @@ struct DashboardView: View {
 
                 // Temperature cards
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
-                    StatCard(title: "Avg CPU (\(sensors.cpuCoreCount))", value: TempFormatter.format(sensors.averageCPUTemp),
+                    StatCard(title: sensorCardTitle("Avg CPU", sensors.cpuSensorCount), value: TempFormatter.format(sensors.averageCPUTemp),
                              icon: "cpu", color: MetricColor.temperature(sensors.averageCPUTemp))
                     StatCard(title: "Peak CPU", value: TempFormatter.format(sensors.hottestCPUTemp),
                              icon: "flame", color: MetricColor.temperature(sensors.hottestCPUTemp))
-                    StatCard(title: "Avg GPU (\(sensors.gpuCoreCount))", value: TempFormatter.format(sensors.averageGPUTemp),
+                    StatCard(title: sensorCardTitle("Avg GPU", sensors.gpuSensorCount), value: TempFormatter.format(sensors.averageGPUTemp),
                              icon: "square.3.layers.3d.top.filled", color: MetricColor.temperature(sensors.averageGPUTemp))
                     StatCard(title: "Peak GPU", value: TempFormatter.format(sensors.hottestGPUTemp),
                              icon: "flame.fill", color: MetricColor.temperature(sensors.hottestGPUTemp))
@@ -98,8 +98,7 @@ struct DashboardView: View {
                         .init(sensors.filteredHistory, value: { $0.maxGPU }, color: .green, label: "GPU Peak", dashed: true),
                     ],
                     yFormatter: { TempFormatter.axisLabel($0) },
-                    tooltipFormatter: { TempFormatter.tooltipLabel($0) },
-                    height: 180
+                    tooltipFormatter: { TempFormatter.tooltipLabel($0) }
                 ) {
                     if let last = sensors.filteredHistory.last {
                         Text("CPU \(tempText(last.avgCPU)) · GPU \(tempText(last.avgGPU))")
@@ -119,7 +118,11 @@ struct DashboardView: View {
                         StatCard(title: "Neural Engine",
                                  value: soc.neuralEngineIsIdle ? "Idle" : powerText(soc.ane),
                                  icon: "brain", color: soc.neuralEngineIsIdle ? Color.secondary : .purple)
-                        StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "bolt.fill", color: .orange)
+                        if soc.system != nil {
+                            StatCard(title: "System", value: powerText(soc.system), icon: "bolt.fill", color: .orange)
+                        } else {
+                            StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "bolt.fill", color: .orange)
+                        }
                     }
                     .padding(.horizontal)
 
@@ -131,16 +134,23 @@ struct DashboardView: View {
                             .init(power.filteredHistory, value: { $0.cpu }, color: .blue, label: "CPU"),
                             .init(power.filteredHistory, value: { $0.gpu }, color: .green, label: "GPU"),
                             .init(power.filteredHistory, value: { $0.ane }, color: .purple, label: "Neural Engine"),
+                            .init(power.filteredHistory, value: { $0.system }, color: .orange, label: "System", dashed: true),
                         ],
                         yFormatter: { String(format: "%.1f W", $0) },
-                        tooltipFormatter: { PowerFormatter.format($0) },
-                        height: 180
+                        tooltipFormatter: { PowerFormatter.format($0) }
                     ) {
                         if let total = soc.combined {
                             Text("SoC \(PowerFormatter.format(total))").font(.caption).foregroundStyle(.secondary)
                         }
                     } subheader: {
-                        EmptyView()
+                        if soc.cpu == nil {
+                            Text(fan.hasWriteAccess
+                                 ? "Waiting for macOS to publish CPU and Neural Engine energy…"
+                                 : "macOS publishes CPU and Neural Engine energy only to a privileged sampler. Enable Fan Control in Settings to install Heimdall's helper, which turns it on while this window is open.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .padding(.horizontal)
                 }
@@ -228,6 +238,16 @@ struct DashboardView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
+
+    /// The count is temperature sensors averaged, not cores: an M3 Max has 4
+    /// CPU-die sensors for 14 cores.
+    private func sensorCardTitle(_ title: String, _ count: Int) -> String {
+        switch count {
+        case 0: return title
+        case 1: return "\(title) · 1 sensor"
+        default: return "\(title) · \(count) sensors"
+        }
+    }
 
     private func powerText(_ watts: Double?) -> String {
         watts.map(PowerFormatter.format) ?? "—"

@@ -2,8 +2,22 @@ import SwiftUI
 
 // MARK: - Chart Insets (room for axis labels)
 
-private let chartLeftPad: CGFloat = 40
+/// Wide enough for the longest axis label ("976.6 KB/s"), and the same for
+/// every chart so their plots line up down the page.
+private let chartLeftPad: CGFloat = 58
 private let chartBottomPad: CGFloat = 20
+/// Room above the top gridline for its label, so every label sits centred on
+/// its gridline instead of the end ones being nudged inward.
+private let chartTopPad: CGFloat = 6
+
+/// Plot height of every history chart in the main window.
+let historyChartHeight: CGFloat = 170
+
+/// Y for a value's fraction of the scale. `plotBottom` is the x-axis line.
+private func plotY(_ frac: Double, plotBottom: CGFloat) -> CGFloat {
+    let clamped = CGFloat(Swift.min(Swift.max(frac, 0), 1))
+    return plotBottom - clamped * (plotBottom - chartTopPad)
+}
 
 // MARK: - Samples & Time Domain
 
@@ -40,6 +54,13 @@ struct ChartTimeDomain: Equatable {
     func x(for time: Date, plotW: CGFloat) -> CGFloat {
         let frac = time.timeIntervalSince(start) / span
         return chartLeftPad + CGFloat(min(max(frac, 0), 1)) * plotW
+    }
+
+    /// Like `x(for:)` but not pinned to the plot. The sample just before the
+    /// window lands left of the plot, so the line enters at the right slope
+    /// and the canvas clip trims it.
+    func unclampedX(for time: Date, plotW: CGFloat) -> CGFloat {
+        chartLeftPad + CGFloat(time.timeIntervalSince(start) / span) * plotW
     }
 
     func time(atX x: CGFloat, plotW: CGFloat) -> Date {
@@ -126,17 +147,14 @@ private func drawYAxis(
     let ticks = scale.ticks
     for (i, val) in ticks.enumerated() {
         let frac = (val - scale.min) / scale.range
-        let y = plotH - CGFloat(frac) * plotH
+        let y = plotY(frac, plotBottom: plotH)
         var gridPath = Path()
         gridPath.move(to: CGPoint(x: chartLeftPad, y: y))
         gridPath.addLine(to: CGPoint(x: size.width, y: y))
         context.stroke(gridPath, with: .color(.secondary.opacity(0.12)), lineWidth: 0.5)
 
-        var labelY = y
-        if i == 0 { labelY -= 6 }
-        else if i == ticks.count - 1 { labelY += 6 }
         let label = Text(formatter(val)).font(.system(size: 9)).foregroundColor(.secondary)
-        context.draw(context.resolve(label), at: CGPoint(x: chartLeftPad - 4, y: labelY), anchor: .trailing)
+        context.draw(context.resolve(label), at: CGPoint(x: chartLeftPad - 4, y: y), anchor: .trailing)
     }
 }
 
@@ -226,13 +244,19 @@ private func chartSegments(
             if !current.isEmpty { segments.append(current); current = [] }
             continue
         }
-        let x = domain.x(for: point.time, plotW: plotW)
+        let x = domain.unclampedX(for: point.time, plotW: plotW)
         let frac = (value - scale.min) / scale.range
-        let y = plotH - CGFloat(min(max(frac, 0), 1)) * plotH
+        let y = plotY(frac, plotBottom: plotH)
         current.append(CGPoint(x: x, y: y))
     }
     if !current.isEmpty { segments.append(current) }
     return segments
+}
+
+/// The plot area, with a little headroom so a 1.5pt line on the top or
+/// bottom gridline is not shaved in half.
+private func plotClipRect(size: CGSize) -> CGRect {
+    CGRect(x: chartLeftPad, y: -2, width: size.width - chartLeftPad, height: size.height - chartBottomPad + 4)
 }
 
 private func strokeSegments(
@@ -307,12 +331,18 @@ class ChartHoverState {
 /// makes Observation re-run the draw with an empty capture, so the lines
 /// vanish until the next poll. The plot Canvas never reads hover state.
 
-private func chartYScale(for pointSets: [[ChartPoint]], yRange: ClosedRange<Double>?) -> ChartYScale {
+private func chartYScale(for pointSets: [[ChartPoint]], yRange: ClosedRange<Double>?,
+                         binary: Bool = false) -> ChartYScale {
     if let yRange {
         return niceYScale(min: yRange.lowerBound, max: yRange.upperBound)
     }
     let bounds = valueBounds(pointSets) ?? (0, 100)
-    return niceYScale(min: bounds.min, max: bounds.max)
+    guard binary else { return niceYScale(min: bounds.min, max: bounds.max) }
+    // Byte rates are shown in 1024-based units, so pick round steps in those
+    // units: 0.5 / 1 / 1.5 MB/s rather than 488.3 / 976.6 KB/s.
+    let unit = bounds.max >= 1024 ? pow(1024, floor(log(bounds.max) / log(1024))) : 1
+    let scaled = niceYScale(min: bounds.min / unit, max: bounds.max / unit)
+    return ChartYScale(min: scaled.min * unit, max: scaled.max * unit, step: scaled.step * unit)
 }
 
 @MainActor
@@ -344,6 +374,8 @@ private struct LinePlotCanvas: View {
             drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
             drawXAxisTimes(context, size: size, domain: domain, window: window)
 
+            var context = context
+            context.clip(to: Path(plotClipRect(size: size)))
             let segments = chartSegments(points: points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
             if let fillColor {
                 for segment in segments where segment.count >= 2 {
@@ -376,7 +408,7 @@ private struct LineCrosshairCanvas: View {
             guard let idx = nearestIndex(in: points, to: hoverTime), let val = points[idx].value else { return }
             let snapX = domain.x(for: points[idx].time, plotW: plotW)
             let frac = (val - scale.min) / scale.range
-            let snapY = plotH - CGFloat(min(max(frac, 0), 1)) * plotH
+            let snapY = plotY(frac, plotBottom: plotH)
 
             var vLine = Path()
             vLine.move(to: CGPoint(x: snapX, y: 0))
@@ -408,6 +440,8 @@ private struct MultiLinePlotCanvas: View {
             drawYAxis(context, size: size, scale: scale, formatter: yFormatter)
             drawXAxisTimes(context, size: size, domain: domain, window: window)
 
+            var context = context
+            context.clip(to: Path(plotClipRect(size: size)))
             for s in series {
                 let segments = chartSegments(points: s.points, domain: domain, scale: scale, plotW: plotW, plotH: plotH)
                 let style: StrokeStyle = s.dashed
@@ -456,7 +490,7 @@ private struct MultiLineCrosshairCanvas: View {
                       let val = s.points[idx].value else { continue }
                 let x = domain.x(for: s.points[idx].time, plotW: plotW)
                 let frac = (val - scale.min) / scale.range
-                let y = plotH - CGFloat(min(max(frac, 0), 1)) * plotH
+                let y = plotY(frac, plotBottom: plotH)
                 let dot = Path(ellipseIn: CGRect(x: x - 4, y: y - 4, width: 8, height: 8))
                 context.fill(dot, with: .color(s.color))
                 context.stroke(dot, with: .color(dotOutlineColor), lineWidth: 1.5)
@@ -678,6 +712,8 @@ struct CanvasMultiLineChart: View {
     let series: [Series]
     let window: TimeInterval
     let yRange: ClosedRange<Double>?
+    /// Round the axis in 1024-based steps, for byte rates.
+    let binaryScale: Bool
     let yFormatter: (Double) -> String
     let tooltipFormatter: (Double) -> String
 
@@ -687,12 +723,14 @@ struct CanvasMultiLineChart: View {
         series: [Series],
         window: TimeInterval,
         yRange: ClosedRange<Double>? = nil,
+        binaryScale: Bool = false,
         yFormatter: @escaping (Double) -> String = { String(format: "%.0f", $0) },
         tooltipFormatter: @escaping (Double) -> String = { String(format: "%.1f", $0) }
     ) {
         self.series = series
         self.window = window
         self.yRange = yRange
+        self.binaryScale = binaryScale
         self.yFormatter = yFormatter
         self.tooltipFormatter = tooltipFormatter
     }
@@ -700,7 +738,7 @@ struct CanvasMultiLineChart: View {
     private var pointSets: [[ChartPoint]] { series.map(\.points) }
 
     private var domain: ChartTimeDomain { makeDomain(pointSets, window: window) }
-    private var scale: ChartYScale { chartYScale(for: pointSets, yRange: yRange) }
+    private var scale: ChartYScale { chartYScale(for: pointSets, yRange: yRange, binary: binaryScale) }
 
     /// Series used to snap the shared crosshair: the one with the most samples.
     private var referenceSeries: Series? {
@@ -824,7 +862,7 @@ struct ChartLegend: View {
 
 /// Shown until enough samples exist to draw a line.
 struct ChartEmptyState: View {
-    var height: CGFloat = 150
+    var height: CGFloat = historyChartHeight
 
     var body: some View {
         VStack(spacing: 8) {
@@ -844,9 +882,9 @@ struct HistoryChartCard<Accessory: View, Subheader: View>: View {
     @Binding var range: HistoryRange
     let series: [CanvasMultiLineChart.Series]
     var yRange: ClosedRange<Double>? = nil
+    var binaryScale = false
     var yFormatter: (Double) -> String = { String(format: "%.0f", $0) }
     var tooltipFormatter: (Double) -> String = { String(format: "%.1f", $0) }
-    var height: CGFloat = 150
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var subheader: () -> Subheader
 
@@ -882,17 +920,18 @@ struct HistoryChartCard<Accessory: View, Subheader: View>: View {
                     series: series,
                     window: range.window,
                     yRange: yRange,
+                    binaryScale: binaryScale,
                     yFormatter: yFormatter,
                     tooltipFormatter: tooltipFormatter
                 )
-                .frame(height: height)
+                .frame(height: historyChartHeight)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(title) chart, last \(range.rawValue)")
                 .accessibilityValue(accessibilitySummary)
 
                 ChartLegend(series: series)
             } else {
-                ChartEmptyState(height: height)
+                ChartEmptyState()
             }
         }
         .padding()
@@ -917,12 +956,13 @@ extension HistoryChartCard where Accessory == EmptyView, Subheader == EmptyView 
         range: Binding<HistoryRange>,
         series: [CanvasMultiLineChart.Series],
         yRange: ClosedRange<Double>? = nil,
+        binaryScale: Bool = false,
         yFormatter: @escaping (Double) -> String = { String(format: "%.0f", $0) },
-        tooltipFormatter: @escaping (Double) -> String = { String(format: "%.1f", $0) },
-        height: CGFloat = 150
+        tooltipFormatter: @escaping (Double) -> String = { String(format: "%.1f", $0) }
     ) {
         self.init(title: title, icon: icon, range: range, series: series, yRange: yRange,
-                  yFormatter: yFormatter, tooltipFormatter: tooltipFormatter, height: height,
+                  binaryScale: binaryScale,
+                  yFormatter: yFormatter, tooltipFormatter: tooltipFormatter,
                   accessory: { EmptyView() }, subheader: { EmptyView() })
     }
 }

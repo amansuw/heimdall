@@ -44,6 +44,9 @@ struct SoCPower: Sendable, Equatable {
     var ane: Double?
     /// DRAM, which Apple Silicon reports alongside the SoC rails.
     var memory: Double?
+    /// Whole-machine draw from the SMC key PSTR, filled in by the monitor. It
+    /// updates every read, unlike the SoC rails.
+    var system: Double?
 
     /// How far back `cpu` / `gpu` / `ane` actually apply. Zero means this
     /// sample only: the counter did not publish, so history behind it stays put.
@@ -61,17 +64,25 @@ struct SoCPower: Sendable, Equatable {
     }
 
     /// CPU + GPU + Neural Engine: what powermetrics calls combined power.
+    /// Nil without a CPU reading: GPU alone is not the SoC, and summing it
+    /// would pass off a fraction of the chip as the whole.
     var combined: Double? {
-        let parts = [cpu, gpu, ane].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.reduce(0, +)
+        guard let cpu else { return nil }
+        return cpu + (gpu ?? 0) + (ane ?? 0)
     }
 
+    /// A lump that covers more than this is an average over minutes, not a
+    /// reading. It is dropped rather than painted as a flat band.
+    static let maxLiveWindow: TimeInterval = 90
+
     init(cpu: Double? = nil, gpu: Double? = nil, ane: Double? = nil, memory: Double? = nil,
+         system: Double? = nil,
          cpuWindow: TimeInterval = 0, gpuWindow: TimeInterval = 0, aneWindow: TimeInterval = 0) {
         self.cpu = cpu
         self.gpu = gpu
         self.ane = ane
         self.memory = memory
+        self.system = system
         self.cpuWindow = cpuWindow
         self.gpuWindow = gpuWindow
         self.aneWindow = aneWindow
@@ -107,9 +118,11 @@ struct SoCPower: Sendable, Equatable {
         )
     }
 
-    /// Watts from two absolute samples. A rail that did not publish returns 0 W
-    /// and a zero window, so the chart keeps whatever it already drew for that
-    /// rail.
+    /// Watts from two absolute samples. A rail that did not publish has no
+    /// reading and a zero window: a counter that is not moving says nothing
+    /// about the load. On an M3 Max under macOS 27, CPU Energy and ANE0 stayed
+    /// frozen through full CPU and Neural Engine load, and reading that as 0 W
+    /// is what put "Idle" on a busy Neural Engine.
     ///
     /// `silence` is seconds since that channel last changed, measured on the wall
     /// clock. CPU and ANE on this SoC often publish with a mach timestamp that
@@ -139,8 +152,7 @@ struct SoCPower: Sendable, Equatable {
                                           wallInterval: wallInterval, ticksPerSecond: ticksPerSecond)
                     window = max(window, ticks, silence[name] ?? wallInterval)
                 }
-                if !published { return (0, 0) }
-                guard window > 0 else { return (nil, 0) }
+                guard published, window > 0, window <= Self.maxLiveWindow else { return (nil, 0) }
                 return (joules / window, window)
             }
             return (nil, 0)
@@ -168,6 +180,7 @@ struct PowerSnapshot: Sendable, TimestampedSample {
     var cpu: Double?
     var gpu: Double?
     var ane: Double?
+    var system: Double?
 }
 
 // MARK: - IOReport
@@ -202,6 +215,13 @@ final class PowerReader {
     private var previous: (channels: [String: ChannelSample], time: Date)?
     /// Wall time of the last sample in which each channel's counter moved.
     private var lastChange: [String: Date] = [:]
+    /// Each rail's last published watts. A counter that skips a poll or two
+    /// keeps its value for `holdFor` instead of flickering to "—".
+    private var heldCPU: (watts: Double, at: Date)?
+    private var heldGPU: (watts: Double, at: Date)?
+    private var heldANE: (watts: Double, at: Date)?
+
+    static let holdFor: TimeInterval = 20
 
     var isAvailable: Bool { functions != nil }
 
@@ -285,10 +305,31 @@ final class PowerReader {
             lastChange[name] = now
         }
 
-        let power = SoCPower(previous: last.channels, current: channels,
+        var power = SoCPower(previous: last.channels, current: channels,
                              wallInterval: interval, ticksPerSecond: ticksPerSecond,
                              silence: silence)
-        return power.combined == nil && power.memory == nil ? nil : power
+        power.cpu = Self.hold(power.cpu, in: &heldCPU, now: now)
+        power.gpu = Self.hold(power.gpu, in: &heldGPU, now: now)
+        power.ane = Self.hold(power.ane, in: &heldANE, now: now)
+        // An idle Neural Engine may not publish at all. CPU Energy comes from
+        // the same power-manager driver, so while it is live, a silent ANE
+        // counter means the engine is off. When both are silent, nothing is known.
+        if power.ane == nil, power.cpu != nil, channels.keys.contains(where: { $0.hasPrefix("ANE") }) {
+            power.ane = 0
+        }
+        return power.gpu == nil && power.combined == nil && power.memory == nil ? nil : power
+    }
+
+    private static func hold(_ watts: Double?, in held: inout (watts: Double, at: Date)?, now: Date) -> Double? {
+        if let watts {
+            held = (watts, now)
+            return watts
+        }
+        guard let last = held, now.timeIntervalSince(last.at) <= holdFor else {
+            held = nil
+            return nil
+        }
+        return last.watts
     }
 
     private static func channels(in sample: CFDictionary, functions: Functions) -> [String: ChannelSample] {

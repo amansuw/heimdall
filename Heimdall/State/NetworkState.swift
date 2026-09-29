@@ -15,7 +15,7 @@ class NetworkState {
             refreshFilteredHistory()
         }
     }
-    var history = RingBuffer<NetworkSnapshot>(capacity: 1800)
+    var history = RingBuffer<NetworkSnapshot>(capacity: chartHistoryCapacity)
     var processHistory: ProcessHistory?
 
     /// Snapshots inside the selected window. Recomputed only when the history
@@ -35,6 +35,6 @@ class NetworkState {
     }
 
     private func refreshFilteredHistory() {
-        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
+        filteredHistory = history.chartElements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

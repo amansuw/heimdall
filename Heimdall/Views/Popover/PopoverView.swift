@@ -36,7 +36,7 @@ struct PopoverView: View {
                     ], window: sensors.historyRange.window,
                        yFormatter: { TempFormatter.axisLabel($0) },
                        tooltipFormatter: { TempFormatter.tooltipLabel($0) })
-                    .frame(height: 100)
+                    .frame(height: historyChartHeight)
                     .padding(.horizontal, 10)
                 }
             }

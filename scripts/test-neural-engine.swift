@@ -159,10 +159,12 @@ for start in before {
 
 if scheduledOnNeuralEngine && aneDelta == 0 {
     print("The convolutions were scheduled on the Neural Engine, and the ANE counter did not move.")
-    print("Heimdall treats a zero ANE delta as Idle, so that card stays on Idle while this script runs.")
     if cpuDelta == 0 {
-        print("CPU Energy did not move either. It comes from the same power-manager driver as ANE.")
+        print("CPU Energy did not move either. It comes from the same power-manager driver as ANE,")
+        print("so macOS is not publishing either counter. Heimdall shows both as — instead of Idle.")
         print("GPU Energy is reported by the GPU driver, which is why that card still updates.")
+    } else {
+        print("CPU Energy moved, so the driver is publishing and the ANE reading is a real 0.")
     }
     print("For estimated watts while this script runs, in another terminal:")
     print("  sudo powermetrics -i 1000 -n \(Int(seconds.rounded(.up))) --samplers cpu_power,gpu_power,ane_power")

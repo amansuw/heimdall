@@ -22,7 +22,7 @@ class CPUState {
             refreshFilteredHistory()
         }
     }
-    var history = RingBuffer<CPUSnapshot>(capacity: 1800)
+    var history = RingBuffer<CPUSnapshot>(capacity: chartHistoryCapacity)
     var processHistory: ProcessHistory?
 
     var totalCores: Int = 0
@@ -62,6 +62,6 @@ class CPUState {
     }
 
     private func refreshFilteredHistory() {
-        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
+        filteredHistory = history.chartElements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

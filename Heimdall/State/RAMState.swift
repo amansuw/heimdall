@@ -15,7 +15,7 @@ class RAMState {
             refreshFilteredHistory()
         }
     }
-    var history = RingBuffer<RAMSnapshot>(capacity: 1800)
+    var history = RingBuffer<RAMSnapshot>(capacity: chartHistoryCapacity)
     var processHistory: ProcessHistory?
 
     /// Snapshots inside the selected window. Recomputed only when the history
@@ -37,6 +37,6 @@ class RAMState {
     }
 
     private func refreshFilteredHistory() {
-        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
+        filteredHistory = history.chartElements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

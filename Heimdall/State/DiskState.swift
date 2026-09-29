@@ -16,7 +16,7 @@ class DiskState {
             refreshFilteredHistory()
         }
     }
-    var ioHistory = RingBuffer<DiskIOSnapshot>(capacity: 1800)
+    var ioHistory = RingBuffer<DiskIOSnapshot>(capacity: chartHistoryCapacity)
     var processHistory: ProcessHistory?
 
     /// Snapshots inside the selected window. Recomputed only when the history
@@ -36,6 +36,6 @@ class DiskState {
     }
 
     private func refreshFilteredHistory() {
-        filteredHistory = ioHistory.elements(since: Date().addingTimeInterval(-historyRange.window))
+        filteredHistory = ioHistory.chartElements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

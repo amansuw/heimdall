@@ -34,7 +34,7 @@ class SensorState {
             refreshFilteredHistory()
         }
     }
-    var temperatureHistory = RingBuffer<TemperatureSnapshot>(capacity: 900)
+    var temperatureHistory = RingBuffer<TemperatureSnapshot>(capacity: chartHistoryCapacity)
 
     // Aggregates below are derived once per sensor tick (in `apply`) from the
     // sensor roles classified at read time, instead of re-scanning and
@@ -46,9 +46,9 @@ class SensorState {
     private(set) var hottestGPUTemp: Double = 0
 
     /// Number of CPU-die temperature sensors currently reporting.
-    private(set) var cpuCoreCount: Int = 0
+    private(set) var cpuSensorCount: Int = 0
     /// Number of GPU-die temperature sensors currently reporting.
-    private(set) var gpuCoreCount: Int = 0
+    private(set) var gpuSensorCount: Int = 0
 
     private(set) var dashboardCPUTemps: [SensorReading] = []
     private(set) var dashboardGPUTemps: [SensorReading] = []
@@ -72,8 +72,8 @@ class SensorState {
         hottestCPUTemp = result.snapshot.maxCPU ?? 0
         averageGPUTemp = result.snapshot.avgGPU ?? 0
         hottestGPUTemp = result.snapshot.maxGPU ?? 0
-        cpuCoreCount = result.cpuTemps.count
-        gpuCoreCount = result.gpuTemps.count
+        cpuSensorCount = result.cpuTemps.count
+        gpuSensorCount = result.gpuTemps.count
         dashboardCPUTemps = result.cpuTemps
         dashboardGPUTemps = result.gpuTemps.count > 8 ? Array(result.gpuTemps.prefix(8)) : result.gpuTemps
         dashboardSystemTemps = result.systemTemps
@@ -86,6 +86,6 @@ class SensorState {
     }
 
     private func refreshFilteredHistory() {
-        filteredHistory = temperatureHistory.elements(since: Date().addingTimeInterval(-historyRange.window))
+        filteredHistory = temperatureHistory.chartElements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

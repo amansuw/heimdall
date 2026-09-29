@@ -18,7 +18,7 @@ class GPUState {
             refreshFilteredHistory()
         }
     }
-    var history = RingBuffer<GPUSnapshot>(capacity: 1800)
+    var history = RingBuffer<GPUSnapshot>(capacity: chartHistoryCapacity)
     var processHistory: ProcessHistory?
 
     /// Snapshots inside the selected window. Recomputed only when the history
@@ -39,6 +39,6 @@ class GPUState {
     }
 
     private func refreshFilteredHistory() {
-        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
+        filteredHistory = history.chartElements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

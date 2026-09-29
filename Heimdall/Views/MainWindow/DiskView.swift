@@ -43,9 +43,9 @@ struct DiskView: View {
                         .init(disk.filteredHistory, value: { Double($0.readBytesPerSec) }, color: .blue, label: "Read"),
                         .init(disk.filteredHistory, value: { Double($0.writeBytesPerSec) }, color: .green, label: "Write"),
                     ],
-                    yFormatter: { ByteFormatter.formatSpeed($0) },
-                    tooltipFormatter: { ByteFormatter.formatSpeed($0) },
-                    height: 120
+                    binaryScale: true,
+                    yFormatter: { ByteFormatter.formatSpeedAxis($0) },
+                    tooltipFormatter: { ByteFormatter.formatSpeed($0) }
                 ) {
                     EmptyView()
                 } subheader: {

@@ -60,6 +60,8 @@ class SMCDaemon {
             handleSession(fd: client, smc: smc)
             Darwin.close(client)
             log("Client disconnected")
+            // Energy reporting is for a watching app. Nobody is watching now.
+            setEnergyReporting(false)
 
             // The app normally hands the fans back on quit. If it crashed or was
             // killed it never got the chance, and the SMC would keep running them at
@@ -266,9 +268,68 @@ class SMCDaemon {
             let hexBytes = val.bytes.prefix(Int(val.dataSize)).map { String(format: "%02X", $0) }.joined(separator: " ")
             return "RAW \(val.dataType.trimmingCharacters(in: .whitespaces)) \(hexBytes)"
 
+        case "ENERGY":
+            guard parts.count == 2, parts[1] == "ON" || parts[1] == "OFF" else { return "ERR energy_args" }
+            return setEnergyReporting(parts[1] == "ON") ? "OK" : "ERR energy_failed"
+
         default:
             return "ERR unknown_cmd"
         }
+    }
+
+    // MARK: - Energy reporting
+
+    /// The power manager only publishes the IOReport CPU and Neural Engine energy
+    /// counters while a client holding com.apple.private.pmgr.nrg.reporting is
+    /// sampling. No third-party binary can hold that entitlement, root or not;
+    /// powermetrics does. While it runs, the counters publish every second for
+    /// every process, so the app's unprivileged reader sees live values.
+    ///
+    /// The command line is fixed and its output discarded: this is a switch, not
+    /// a way for a client to run anything. Cost measured on an M3 Max: 0.3% CPU.
+    ///
+    /// Each ON is a lease: powermetrics exits by itself after `energyLeaseSamples`
+    /// seconds, so a helper that dies cannot leave it running. The app renews
+    /// well inside that.
+    nonisolated(unsafe) private static var energyReporter: Process?
+    private static let energyLeaseSamples = 60
+    nonisolated(unsafe) private static var energyReporterStarted: Date?
+
+    @discardableResult
+    private static func setEnergyReporting(_ on: Bool) -> Bool {
+        if !on {
+            if let reporter = energyReporter, reporter.isRunning {
+                reporter.terminate()
+                log("Energy reporting stopped")
+            }
+            energyReporter = nil
+            energyReporterStarted = nil
+            return true
+        }
+        let renewing = energyReporter != nil
+        if let reporter = energyReporter, reporter.isRunning {
+            // Restart only near the end of the lease, so renewals stay cheap.
+            guard let started = energyReporterStarted,
+                  Date().timeIntervalSince(started) > TimeInterval(energyLeaseSamples) / 2 else { return true }
+            reporter.terminate()
+        }
+
+        let reporter = Process()
+        reporter.executableURL = URL(fileURLWithPath: "/usr/bin/powermetrics")
+        reporter.arguments = ["-i", "1000", "-n", "\(energyLeaseSamples)", "--samplers", "cpu_power", "-o", "/dev/null"]
+        reporter.standardInput = FileHandle.nullDevice
+        reporter.standardOutput = FileHandle.nullDevice
+        reporter.standardError = FileHandle.nullDevice
+        do {
+            try reporter.run()
+        } catch {
+            log("Energy reporting failed to start: \(error)")
+            return false
+        }
+        energyReporter = reporter
+        energyReporterStarted = Date()
+        if !renewing { log("Energy reporting started (powermetrics pid \(reporter.processIdentifier))") }
+        return true
     }
 
     // MARK: - Installation

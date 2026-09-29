@@ -14,7 +14,7 @@ final class PowerState {
         }
     }
 
-    private var history = RingBuffer<PowerSnapshot>(capacity: 1800)
+    private var history = RingBuffer<PowerSnapshot>(capacity: chartHistoryCapacity)
 
     /// Snapshots inside the selected window. Recomputed only when the history
     /// grows or the range changes — never on a SwiftUI render pass.
@@ -22,7 +22,8 @@ final class PowerState {
 
     func apply(_ power: SoCPower, at now: Date = Date()) {
         latest = power
-        history.append(PowerSnapshot(timestamp: now, cpu: power.cpu, gpu: power.gpu, ane: power.ane))
+        history.append(PowerSnapshot(timestamp: now, cpu: power.cpu, gpu: power.gpu,
+                                      ane: power.ane, system: power.system))
         // A late publication describes the whole gap since the counter last
         // moved, not the poll that happened to notice it. Paint that gap so a
         // minute at a few watts is a band, not one needle.
@@ -42,6 +43,6 @@ final class PowerState {
     }
 
     private func refreshFilteredHistory() {
-        filteredHistory = history.elements(since: Date().addingTimeInterval(-historyRange.window))
+        filteredHistory = history.chartElements(since: Date().addingTimeInterval(-historyRange.window))
     }
 }

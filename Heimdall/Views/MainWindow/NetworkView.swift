@@ -45,7 +45,8 @@ struct NetworkView: View {
                         .init(net.filteredHistory, value: { Double($0.downloadBytesPerSec) }, color: .blue, label: "Download"),
                         .init(net.filteredHistory, value: { Double($0.uploadBytesPerSec) }, color: .green, label: "Upload"),
                     ],
-                    yFormatter: { ByteFormatter.formatSpeed($0) },
+                    binaryScale: true,
+                    yFormatter: { ByteFormatter.formatSpeedAxis($0) },
                     tooltipFormatter: { ByteFormatter.formatSpeed($0) }
                 )
                 .padding(.horizontal)
