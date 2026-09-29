@@ -199,9 +199,18 @@ struct SensorLookup {
         }
     }
 
+    /// A CPU or GPU die sensor whose cluster is powered down reports 0 or a small
+    /// negative offset, not a temperature. On an M3 Max all 32 GPU die sensors
+    /// (Tg**) read 0.00 / -1.5 / -8.75 while the GPU sleeps, and 40-50 during
+    /// the moments it wakes, every few seconds when idle.
+    static func isPoweredDownDieReading(_ value: Double, role: SensorRole) -> Bool {
+        (role == .cpuTemp || role == .gpuTemp) && value > -20 && value <= 0
+    }
+
     static func isReasonableValue(_ value: Double, for category: SensorCategory) -> Bool {
         switch category {
-        case .temperature: return value >= 0 && value < 130
+        // 0 is not a temperature: it is what a powered-down die sensor reports.
+        case .temperature: return value > 0 && value < 130
         case .voltage: return value > 0 && value < 25
         case .current: return value > -15 && value < 30
         case .power: return value > -5 && value < 350
