@@ -118,12 +118,38 @@ struct PowerReaderTests {
         #expect(power.aneWindow == 60)
     }
 
-    @Test func aSilentCounterDoesNotRewriteHistory() {
+    /// A counter that did not publish says nothing about the load. Reading it
+    /// as 0 W put "Idle" on a Neural Engine running Core ML flat out.
+    @Test func aSilentCounterIsNoReading() {
         let sample = ["ANE0": ChannelSample(unit: "mJ", energy: 105_938, machTicks: 50)]
         let power = SoCPower(previous: sample, current: sample, wallInterval: 2, ticksPerSecond: 24_000_000)
-        #expect(power.ane == 0)
+        #expect(power.ane == nil)
         #expect(power.aneWindow == 0)
+        #expect(!power.neuralEngineIsIdle)
         #expect(power.cpu == nil)
+    }
+
+    /// A counter that ticks with no new energy is a real reading of 0.
+    @Test func aPublishedZeroIsIdle() {
+        let previous = ["ANE0": ChannelSample(unit: "mJ", energy: 500, machTicks: 24_000_000)]
+        let current = ["ANE0": ChannelSample(unit: "mJ", energy: 500, machTicks: 72_000_000)]
+        let power = SoCPower(previous: previous, current: current, wallInterval: 2, ticksPerSecond: 24_000_000)
+        #expect(power.ane == 0)
+        #expect(power.neuralEngineIsIdle)
+    }
+
+    /// Minutes of energy in one publication is an average, not a reading.
+    @Test func aLumpOverMinutesIsDropped() {
+        let previous = ["CPU Energy": ChannelSample(unit: "mJ", energy: 0, machTicks: 24_000_000)]
+        let current = ["CPU Energy": ChannelSample(unit: "mJ", energy: 600_000, machTicks: 24_000_000 * 301)]
+        let power = SoCPower(previous: previous, current: current, wallInterval: 2, ticksPerSecond: 24_000_000)
+        #expect(power.cpu == nil)
+        #expect(power.cpuWindow == 0)
+    }
+
+    @Test func gpuAloneIsNotTheSoC() {
+        #expect(SoCPower(gpu: 0.2).combined == nil)
+        #expect(SoCPower(cpu: 1.5, gpu: 0.2).combined == 1.7)
     }
 
     @Test func aWrappedCounterIsNotNegativePower() {

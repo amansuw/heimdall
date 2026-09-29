@@ -25,6 +25,11 @@ final class FanController: @unchecked Sendable {
     private var sockFd: Int32 = -1
     private var rspBuffer = Data()
     private var forceTestModeActive = false
+    /// Whether the app wants the helper to keep the SoC energy counters
+    /// publishing. Re-sent on every connect, since the helper drops it when a
+    /// session ends.
+    private var energyReportingWanted = false
+    private var energyLeaseRenewed: Date = .distantPast
 
     /// Fan indices captured at discovery, in the same order as `fanState.fans`.
     private var fanIndices: [Int] = []
@@ -220,7 +225,29 @@ final class FanController: @unchecked Sendable {
             closePersistentFDs()
             return false
         }
+        if energyReportingWanted {
+            _ = sendCommand("ENERGY ON")
+            energyLeaseRenewed = Date()
+        }
         return true
+    }
+
+    /// Asks the helper to keep CPU and Neural Engine energy publishing while
+    /// power is on screen. Without the helper those rails read "—". Called on
+    /// every fast tick; ON is a 60s lease on the helper side, renewed every 20s.
+    func setEnergyReporting(_ on: Bool) {
+        helperQueue.async { [weak self] in
+            guard let self else { return }
+            let changed = self.energyReportingWanted != on
+            self.energyReportingWanted = on
+            if on {
+                guard changed || Date().timeIntervalSince(self.energyLeaseRenewed) > 20 else { return }
+                if self.sendCommand("ENERGY ON") != nil { self.energyLeaseRenewed = Date() }
+            } else if changed {
+                _ = self.sendCommand("ENERGY OFF")
+                self.energyLeaseRenewed = .distantPast
+            }
+        }
     }
 
     private func onDaemonConnected() {
