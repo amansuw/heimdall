@@ -7,6 +7,10 @@ struct BatteryReaderResult: Sendable {
 }
 
 class BatteryReader {
+    /// Apple's "Maximum Capacity" percentage and when it was read. It moves a
+    /// point every few weeks, so it is fetched once an hour, not every tick.
+    private var maximumCapacity: (percent: Double?, readAt: Date)?
+
     func read() -> BatteryReaderResult {
         var info = BatteryInfo()
 
@@ -63,26 +67,26 @@ class BatteryReader {
         guard IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
               let dict = props?.takeRetainedValue() as? [String: Any] else { return }
 
-        if let cycles = dict["CycleCount"] as? Int { info.cycleCount = cycles }
-        if let designCap = dict["DesignCapacity"] as? Int { info.designCapacity = designCap }
+        // Recent macOS releases on Apple silicon report the mAh figures only
+        // inside BatteryData. Top level first, then there.
+        let batteryData = dict["BatteryData"] as? [String: Any] ?? [:]
+        func capacity(_ key: String) -> Int? {
+            let value = (dict[key] as? Int) ?? (batteryData[key] as? Int)
+            return value.flatMap { $0 > 0 ? $0 : nil }
+        }
 
-        if let rawCurrent = dict["AppleRawCurrentCapacity"] as? Int, rawCurrent > 0 {
+        if let cycles = dict["CycleCount"] as? Int { info.cycleCount = cycles }
+        if let designCap = capacity("DesignCapacity") { info.designCapacity = designCap }
+
+        if let rawCurrent = capacity("AppleRawCurrentCapacity") ?? capacity("RemainingCapacity") {
             info.currentCapacity = rawCurrent
         }
 
-        // NominalChargeCapacity matches Apple Settings "Maximum Capacity" health %
-        var fullChargeCap = 0
-        if let nominal = dict["NominalChargeCapacity"] as? Int, nominal > 0 {
-            fullChargeCap = nominal
-        } else if let rawMax = dict["AppleRawMaxCapacity"] as? Int, rawMax > 0 {
-            fullChargeCap = rawMax
-        } else if let batteryData = dict["BatteryData"] as? [String: Any],
-                  let fcc = batteryData["FccComp2"] as? Int, fcc > 0 {
-            fullChargeCap = fcc
-        } else if let batteryData = dict["BatteryData"] as? [String: Any],
-                  let fcc = batteryData["FccComp1"] as? Int, fcc > 0 {
-            fullChargeCap = fcc
-        }
+        let fullChargeCap = capacity("NominalChargeCapacity")
+            ?? capacity("AppleRawMaxCapacity")
+            ?? capacity("FccComp2")
+            ?? capacity("FccComp1")
+            ?? 0
 
         if fullChargeCap > 0 {
             info.maxCapacity = fullChargeCap
@@ -91,7 +95,22 @@ class BatteryReader {
             }
         }
 
-        if let temp = dict["Temperature"] as? Int { info.temperature = Double(temp) / 100.0 }
+        // System Information's "Maximum Capacity" is not nominal / design: on an
+        // M3 Max with 183 cycles that ratio is 93% while Apple reports 100%.
+        // Show Apple's figure when it is available, the ratio otherwise.
+        if let percent = appleMaximumCapacity() {
+            info.healthPercent = percent
+        }
+
+        if let temp = dict["Temperature"] as? Int {
+            info.temperature = Double(temp) / 100.0
+        } else {
+            // The registry stopped carrying Temperature alongside the mAh keys.
+            // The SMC still has the pack's own sensors.
+            let packTemps = ["TB0T", "TB1T", "TB2T"].compactMap { SMCKit.shared.readFloat($0) }
+                .filter { $0.isFinite && $0 > 0 && $0 < 100 }
+            if let hottest = packTemps.max() { info.temperature = hottest }
+        }
         if let voltage = dict["Voltage"] as? Int { info.voltage = Double(voltage) / 1000.0 }
         if let amperage = dict["InstantAmperage"] as? Int {
             let amps = Double(amperage) / 1000.0
@@ -103,5 +122,53 @@ class BatteryReader {
             if let current = adapterInfo["Current"] as? Int { info.adapterCurrent = current }
             if let voltage = adapterInfo["Voltage"] as? Int { info.adapterVoltage = voltage }
         }
+    }
+
+    private func appleMaximumCapacity() -> Double? {
+        if let cached = maximumCapacity, Date().timeIntervalSince(cached.readAt) < 3600 {
+            return cached.percent
+        }
+        let percent = Self.readMaximumCapacity()
+        maximumCapacity = (percent, Date())
+        return percent
+    }
+
+    /// "Maximum Capacity" as System Information shows it. No public API or
+    /// registry key carries it, so this asks system_profiler (about 80ms).
+    private static func readMaximumCapacity() -> Double? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
+        process.arguments = ["SPPowerDataType", "-json"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let watchdog = DispatchWorkItem { [process] in
+            if process.isRunning { process.terminate() }
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5, execute: watchdog)
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        watchdog.cancel()
+        return parseMaximumCapacity(data)
+    }
+
+    static func parseMaximumCapacity(_ data: Data) -> Double? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = root["SPPowerDataType"] as? [[String: Any]] else { return nil }
+        for item in items {
+            guard let health = item["sppower_battery_health_info"] as? [String: Any],
+                  let text = health["sppower_battery_health_maximum_capacity"] as? String,
+                  let percent = Double(text.trimmingCharacters(in: CharacterSet(charactersIn: "% "))),
+                  percent > 0
+            else { continue }
+            return min(percent, 100)
+        }
+        return nil
     }
 }
