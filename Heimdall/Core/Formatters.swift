@@ -84,6 +84,18 @@ enum ByteFormatter {
         if kb >= 1 { return String(format: "%.1f KB/s", kb) }
         return String(format: "%.0f B/s", value)
     }
+
+    /// Axis label: like `formatSpeed` but without a trailing ".0", so a
+    /// 1024-based round step reads "1 MB/s" and "512 KB/s".
+    static func formatSpeedAxis(_ bytesPerSec: Double) -> String {
+        let value = max(bytesPerSec, 0)
+        for (divisor, suffix) in [(1_073_741_824.0, "GB/s"), (1_048_576.0, "MB/s"), (1024.0, "KB/s")] where value >= divisor {
+            let scaled = value / divisor
+            let text = scaled.rounded() == scaled ? String(format: "%.0f", scaled) : String(format: "%.1f", scaled)
+            return "\(text) \(suffix)"
+        }
+        return String(format: "%.0f B/s", value)
+    }
 }
 
 /// Sensors always report Celsius; conversion happens here, at the point of

@@ -214,6 +214,12 @@ enum FanNaming {
 /// wall-clock time of the sample. Charts plot against these timestamps, never
 /// against array index — the polling cadence is not constant (1s fan-boost /
 /// 2s visible / 30s background).
+/// Samples kept per history chart. The longest range is 60 minutes and the
+/// window-open cadence is 2s, which needs 1800; the rest is headroom for fan
+/// boost (1s) bursts and timer jitter, so the oldest sample is always older than
+/// the window and the chart's left edge stays filled.
+let chartHistoryCapacity = 2400
+
 protocol TimestampedSample {
     var timestamp: Date { get }
 }
@@ -242,6 +248,23 @@ extension RingBuffer where Element: TimestampedSample {
         guard count > 0 else { return [] }
         let start = firstIndex(atOrAfter: cutoff)
         guard start < count else { return [] }
+        var result = [Element]()
+        result.reserveCapacity(count - start)
+        for index in start..<count {
+            if let element = self[index] { result.append(element) }
+        }
+        return result
+    }
+
+    /// Elements newer than `cutoff`, plus the newest one before it.
+    ///
+    /// Charts draw this. Without the lead-in sample the line starts at the
+    /// first sample inside the window, so when that sample ages out the left
+    /// edge goes blank until the next one crosses. At the 10–30s menu-bar
+    /// cadence that gap is a visible chunk of the chart.
+    func chartElements(since cutoff: Date) -> [Element] {
+        guard count > 0 else { return [] }
+        let start = max(firstIndex(atOrAfter: cutoff) - 1, 0)
         var result = [Element]()
         result.reserveCapacity(count - start)
         for index in start..<count {

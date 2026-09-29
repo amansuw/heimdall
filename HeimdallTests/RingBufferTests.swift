@@ -56,6 +56,11 @@ struct RingBufferTests {
             var visited: [Sample] = []
             buffer.forEachElement(since: cutoff) { visited.append($0) }
             #expect(visited == expected)
+
+            // Charts get the same window plus the newest sample before it, so
+            // the line reaches the left edge.
+            let leadIn = retained.last { $0.timestamp < cutoff }
+            #expect(buffer.chartElements(since: cutoff) == (leadIn.map { [$0] } ?? []) + expected)
         }
     }
 }
