@@ -23,6 +23,19 @@ struct EnergyReading: Sendable, Equatable {
     }
 }
 
+/// One absolute Energy Model counter, plus the mach time of its last publication.
+///
+/// The CPU and Neural Engine counters on Apple Silicon do not tick every poll.
+/// They sit still, then publish a lump of energy with a new mach timestamp.
+/// Dividing that lump by the poll interval (about 2s) turns a minute at 2 W
+/// into one sample at 50 W, which the chart draws as a spike.
+struct ChannelSample: Sendable, Equatable {
+    let unit: String
+    let energy: Int64
+    /// Mach-absolute ticks. 0 when the sample did not carry a timestamp.
+    let machTicks: UInt64
+}
+
 /// Average SoC power, in watts, over one sampling interval.
 struct SoCPower: Sendable, Equatable {
     var cpu: Double?
@@ -31,6 +44,12 @@ struct SoCPower: Sendable, Equatable {
     var ane: Double?
     /// DRAM, which Apple Silicon reports alongside the SoC rails.
     var memory: Double?
+
+    /// How far back `cpu` / `gpu` / `ane` actually apply. Zero means this
+    /// sample only: the counter did not publish, so history behind it stays put.
+    var cpuWindow: TimeInterval = 0
+    var gpuWindow: TimeInterval = 0
+    var aneWindow: TimeInterval = 0
 
     /// Every Apple Silicon Mac has a Neural Engine, and macOS powers it down when
     /// nothing is using it, so an idle one draws nothing and reads exactly 0. Showing
@@ -47,46 +66,108 @@ struct SoCPower: Sendable, Equatable {
         return parts.isEmpty ? nil : parts.reduce(0, +)
     }
 
-    init(cpu: Double? = nil, gpu: Double? = nil, ane: Double? = nil, memory: Double? = nil) {
+    init(cpu: Double? = nil, gpu: Double? = nil, ane: Double? = nil, memory: Double? = nil,
+         cpuWindow: TimeInterval = 0, gpuWindow: TimeInterval = 0, aneWindow: TimeInterval = 0) {
         self.cpu = cpu
         self.gpu = gpu
         self.ane = ane
         self.memory = memory
+        self.cpuWindow = cpuWindow
+        self.gpuWindow = gpuWindow
+        self.aneWindow = aneWindow
     }
 
     /// Converts one sample delta into watts. Channel names differ between chip
     /// generations, so each rail tries its usual name first and then a broader match.
+    /// The whole delta is assumed to have arrived during `interval`.
     init(readings: [EnergyReading], interval: TimeInterval) {
-        func watts(_ candidates: [(EnergyReading) -> Bool]) -> Double? {
-            guard interval > 0 else { return nil }
+        func watts(_ candidates: [(EnergyReading) -> Bool]) -> (Double?, TimeInterval) {
+            guard interval > 0 else { return (nil, 0) }
             for matches in candidates {
                 let hits = readings.filter(matches)
                 guard !hits.isEmpty else { continue }
                 let joules = hits.compactMap(\.joules)
-                guard joules.count == hits.count else { return nil }
+                guard joules.count == hits.count else { return (nil, 0) }
                 // A counter that wrapped between samples yields a negative delta.
-                return max(joules.reduce(0, +), 0) / interval
+                return (max(joules.reduce(0, +), 0) / interval, interval)
             }
-            return nil
+            return (nil, 0)
         }
 
+        let cpu = watts([{ $0.channel == "CPU Energy" },
+                         { $0.channel == "ECPU" || $0.channel == "PCPU" }])
+        let gpu = watts([{ $0.channel == "GPU Energy" },
+                         { $0.channel == "GPU" }])
+        let ane = watts([{ $0.channel == "ANE" },
+                         { $0.channel.hasPrefix("ANE") && !$0.channel.contains("SRAM") }])
+        let memory = watts([{ $0.channel == "DRAM" }])
         self.init(
-            cpu: watts([{ $0.channel == "CPU Energy" },
-                        { $0.channel == "ECPU" || $0.channel == "PCPU" }]),
-            gpu: watts([{ $0.channel == "GPU Energy" },
-                        { $0.channel == "GPU" }]),
-            ane: watts([{ $0.channel == "ANE" },
-                        { $0.channel.hasPrefix("ANE") && !$0.channel.contains("SRAM") }]),
-            memory: watts([{ $0.channel == "DRAM" }])
+            cpu: cpu.0, gpu: gpu.0, ane: ane.0, memory: memory.0,
+            cpuWindow: cpu.1, gpuWindow: gpu.1, aneWindow: ane.1
         )
+    }
+
+    /// Watts from two absolute samples. A rail that did not publish returns 0 W
+    /// and a zero window, so the chart keeps whatever it already drew for that
+    /// rail.
+    ///
+    /// `silence` is seconds since that channel last changed, measured on the wall
+    /// clock. CPU and ANE on this SoC often publish with a mach timestamp that
+    /// does not move, so the tick span collapses to the poll interval and a
+    /// minute of load becomes one spike. The longer of the two clocks is the
+    /// window the chart repaints.
+    init(previous: [String: ChannelSample], current: [String: ChannelSample],
+         wallInterval: TimeInterval, ticksPerSecond: Double,
+         silence: [String: TimeInterval] = [:]) {
+        func rail(_ candidates: [(String) -> Bool]) -> (Double?, TimeInterval) {
+            for matches in candidates {
+                let names = current.keys.filter(matches)
+                guard !names.isEmpty else { continue }
+                var joules = 0.0
+                var window = 0.0
+                var published = false
+                for name in names {
+                    guard let now = current[name], let then = previous[name] else { continue }
+                    let unchanged = now.energy == then.energy && now.machTicks == then.machTicks
+                    if unchanged { continue }
+                    guard let converted = EnergyReading(
+                        channel: name, unit: now.unit, value: max(now.energy - then.energy, 0)
+                    ).joules else { return (nil, 0) }
+                    published = true
+                    joules += converted
+                    let ticks = Self.span(from: then.machTicks, to: now.machTicks,
+                                          wallInterval: wallInterval, ticksPerSecond: ticksPerSecond)
+                    window = max(window, ticks, silence[name] ?? wallInterval)
+                }
+                if !published { return (0, 0) }
+                guard window > 0 else { return (nil, 0) }
+                return (joules / window, window)
+            }
+            return (nil, 0)
+        }
+
+        let cpu = rail([{ $0 == "CPU Energy" }, { $0 == "ECPU" || $0 == "PCPU" }])
+        let gpu = rail([{ $0 == "GPU Energy" }, { $0 == "GPU" }])
+        let ane = rail([{ $0 == "ANE" }, { $0.hasPrefix("ANE") && !$0.contains("SRAM") }])
+        let memory = rail([{ $0 == "DRAM" }])
+        self.init(
+            cpu: cpu.0, gpu: gpu.0, ane: ane.0, memory: memory.0,
+            cpuWindow: cpu.1, gpuWindow: gpu.1, aneWindow: ane.1
+        )
+    }
+
+    private static func span(from previous: UInt64, to current: UInt64,
+                             wallInterval: TimeInterval, ticksPerSecond: Double) -> TimeInterval {
+        guard previous > 0, current > previous, ticksPerSecond > 0 else { return wallInterval }
+        return Double(current - previous) / ticksPerSecond
     }
 }
 
 struct PowerSnapshot: Sendable, TimestampedSample {
-    let timestamp: Date
-    let cpu: Double?
-    let gpu: Double?
-    let ane: Double?
+    var timestamp: Date
+    var cpu: Double?
+    var gpu: Double?
+    var ane: Double?
 }
 
 // MARK: - IOReport
@@ -104,13 +185,11 @@ final class PowerReader {
     private typealias CopyChannelsInGroup = @convention(c) (CFString?, CFString?, UInt64, UInt64, UInt64) -> Unmanaged<CFMutableDictionary>?
     private typealias CreateSubscription = @convention(c) (UnsafeMutableRawPointer?, CFMutableDictionary, UnsafeMutablePointer<Unmanaged<CFMutableDictionary>?>, UInt64, CFTypeRef?) -> OpaquePointer?
     private typealias CreateSamples = @convention(c) (OpaquePointer, CFMutableDictionary, CFTypeRef?) -> Unmanaged<CFDictionary>?
-    private typealias CreateSamplesDelta = @convention(c) (CFDictionary, CFDictionary, CFTypeRef?) -> Unmanaged<CFDictionary>?
     private typealias SimpleGetIntegerValue = @convention(c) (CFDictionary, Int32) -> Int64
     private typealias ChannelGetString = @convention(c) (CFDictionary) -> Unmanaged<CFString>?
 
     private struct Functions {
         let createSamples: CreateSamples
-        let createSamplesDelta: CreateSamplesDelta
         let simpleGetIntegerValue: SimpleGetIntegerValue
         let channelName: ChannelGetString
         let unitLabel: ChannelGetString
@@ -119,7 +198,10 @@ final class PowerReader {
     private let functions: Functions?
     private let subscription: OpaquePointer?
     private let subscribedChannels: CFMutableDictionary?
-    private var previous: (sample: CFDictionary, time: Date)?
+    private let ticksPerSecond: Double
+    private var previous: (channels: [String: ChannelSample], time: Date)?
+    /// Wall time of the last sample in which each channel's counter moved.
+    private var lastChange: [String: Date] = [:]
 
     var isAvailable: Bool { functions != nil }
 
@@ -132,7 +214,6 @@ final class PowerReader {
               let copyChannels = symbol(library, "IOReportCopyChannelsInGroup", as: CopyChannelsInGroup.self),
               let createSubscription = symbol(library, "IOReportCreateSubscription", as: CreateSubscription.self),
               let createSamples = symbol(library, "IOReportCreateSamples", as: CreateSamples.self),
-              let createSamplesDelta = symbol(library, "IOReportCreateSamplesDelta", as: CreateSamplesDelta.self),
               let simpleGetIntegerValue = symbol(library, "IOReportSimpleGetIntegerValue", as: SimpleGetIntegerValue.self),
               let channelName = symbol(library, "IOReportChannelGetChannelName", as: ChannelGetString.self),
               let unitLabel = symbol(library, "IOReportChannelGetUnitLabel", as: ChannelGetString.self),
@@ -141,6 +222,7 @@ final class PowerReader {
             functions = nil
             subscription = nil
             subscribedChannels = nil
+            ticksPerSecond = 0
             return
         }
 
@@ -150,18 +232,25 @@ final class PowerReader {
             functions = nil
             subscription = nil
             subscribedChannels = nil
+            ticksPerSecond = 0
             return
         }
 
         functions = Functions(
             createSamples: createSamples,
-            createSamplesDelta: createSamplesDelta,
             simpleGetIntegerValue: simpleGetIntegerValue,
             channelName: channelName,
             unitLabel: unitLabel
         )
         subscription = sub
         subscribedChannels = subbed
+        var timebase = mach_timebase_info_data_t()
+        if mach_timebase_info(&timebase) == 0, timebase.numer > 0 {
+            let nanosPerTick = Double(timebase.numer) / Double(timebase.denom)
+            ticksPerSecond = 1e9 / nanosPerTick
+        } else {
+            ticksPerSecond = 0
+        }
     }
 
     /// Average power since the previous call. The first call only primes the
@@ -172,25 +261,55 @@ final class PowerReader {
         else { return nil }
 
         let now = Date()
+        let channels = Self.channels(in: sample, functions: functions)
         let last = previous
-        previous = (sample, now)
-        guard let last else { return nil }
+        previous = (channels, now)
+        guard let last else {
+            lastChange = channels.mapValues { _ in now }
+            return nil
+        }
 
         let interval = now.timeIntervalSince(last.time)
-        guard interval > 0,
-              let delta = functions.createSamplesDelta(last.sample, sample, nil)?.takeRetainedValue(),
-              let items = (delta as NSDictionary)["IOReportChannels"] as? [NSDictionary]
-        else { return nil }
+        guard interval > 0 else { return nil }
 
-        let readings = items.compactMap { item -> EnergyReading? in
+        var silence: [String: TimeInterval] = [:]
+        for (name, sample) in channels {
+            let changed: Bool
+            if let before = last.channels[name] {
+                changed = before.energy != sample.energy || before.machTicks != sample.machTicks
+            } else {
+                changed = true
+            }
+            guard changed else { continue }
+            silence[name] = now.timeIntervalSince(lastChange[name] ?? last.time)
+            lastChange[name] = now
+        }
+
+        let power = SoCPower(previous: last.channels, current: channels,
+                             wallInterval: interval, ticksPerSecond: ticksPerSecond,
+                             silence: silence)
+        return power.combined == nil && power.memory == nil ? nil : power
+    }
+
+    private static func channels(in sample: CFDictionary, functions: Functions) -> [String: ChannelSample] {
+        guard let items = (sample as NSDictionary)["IOReportChannels"] as? [NSDictionary] else { return [:] }
+        var channels: [String: ChannelSample] = [:]
+        channels.reserveCapacity(items.count)
+        for item in items {
             let channel = item as CFDictionary
             guard let name = functions.channelName(channel)?.takeUnretainedValue() as String?,
                   let unit = functions.unitLabel(channel)?.takeUnretainedValue() as String?
-            else { return nil }
-            return EnergyReading(channel: name, unit: unit, value: functions.simpleGetIntegerValue(channel, 0))
+            else { continue }
+            var ticks: UInt64 = 0
+            if let data = item["RawElements"] as? Data, data.count >= 40 {
+                ticks = data.withUnsafeBytes { $0.load(fromByteOffset: 24, as: UInt64.self) }
+            }
+            channels[name] = ChannelSample(
+                unit: unit,
+                energy: functions.simpleGetIntegerValue(channel, 0),
+                machTicks: ticks
+            )
         }
-
-        let power = SoCPower(readings: readings, interval: interval)
-        return power.combined == nil && power.memory == nil ? nil : power
+        return channels
     }
 }

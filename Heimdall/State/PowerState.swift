@@ -20,10 +20,25 @@ final class PowerState {
     /// grows or the range changes — never on a SwiftUI render pass.
     private(set) var filteredHistory: [PowerSnapshot] = []
 
-    func apply(_ power: SoCPower) {
+    func apply(_ power: SoCPower, at now: Date = Date()) {
         latest = power
-        history.append(PowerSnapshot(timestamp: Date(), cpu: power.cpu, gpu: power.gpu, ane: power.ane))
+        history.append(PowerSnapshot(timestamp: now, cpu: power.cpu, gpu: power.gpu, ane: power.ane))
+        // A late publication describes the whole gap since the counter last
+        // moved, not the poll that happened to notice it. Paint that gap so a
+        // minute at a few watts is a band, not one needle.
+        paint(\.cpu, power.cpu, over: power.cpuWindow, ending: now)
+        paint(\.gpu, power.gpu, over: power.gpuWindow, ending: now)
+        paint(\.ane, power.ane, over: power.aneWindow, ending: now)
         refreshFilteredHistory()
+    }
+
+    private func paint(_ rail: WritableKeyPath<PowerSnapshot, Double?>, _ watts: Double?,
+                       over window: TimeInterval, ending now: Date) {
+        guard window > 0 else { return }
+        let start = now.addingTimeInterval(-window)
+        history.updateAll { snapshot in
+            if snapshot.timestamp >= start { snapshot[keyPath: rail] = watts }
+        }
     }
 
     private func refreshFilteredHistory() {

@@ -31,8 +31,8 @@ struct CPUView: View {
                 }
                 .padding(.horizontal)
 
-                // Per-core bars, one section per cluster
-                ForEach(cpu.usage.clusters) { cluster in
+                // Per-core bars, efficiency first, then the rest in hardware order.
+                ForEach(coreSections) { cluster in
                     let cores = cpu.usage.perCore.filter { $0.clusterID == cluster.id }
                     if !cores.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -41,20 +41,13 @@ struct CPUView: View {
                                 Spacer()
                                 Text("\(cores.count) cores").font(.caption).foregroundStyle(.secondary)
                             }
-                            // One flexible column per core, wrapping after 10 so a
-                            // 32- or 40-core part does not become a wall of rows.
-                            // Adaptive min/max columns left 5 bars as 26pt stubs on the left.
-                            LazyVGrid(
-                                columns: Array(
-                                    repeating: GridItem(.flexible(minimum: 36), spacing: 8),
-                                    count: min(max(cores.count, 1), 10)
-                                ),
-                                spacing: 10
-                            ) {
-                                ForEach(cores) { core in
-                                    CoreUsageBar(id: core.id, usage: core.usage, color: clusterColor(cluster), barHeight: 72)
-                                }
-                            }
+                            // Performance wraps at 5 so a 10-core cluster is two full rows.
+                            // A short row stretches to the full width instead of leaving empty slots.
+                            CoreUsageRows(
+                                cores: cores.map { CoreBar(id: $0.id, usage: $0.usage) },
+                                color: clusterColor(cluster),
+                                perRow: cluster.letter == "P" ? 5 : 10
+                            )
                         }
                         .padding()
                         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
@@ -127,6 +120,13 @@ struct CPUView: View {
     }
 
 
+    /// Efficiency cores lead the per-core sections. Everything else keeps
+    /// the hardware order (performance first among the remainder).
+    private var coreSections: [CPUCluster] {
+        let clusters = cpu.usage.clusters
+        return clusters.filter { $0.letter == "E" } + clusters.filter { $0.letter != "E" }
+    }
+
     /// Cluster colours/icons are assigned by position, so a third cluster type
     /// renders sensibly without needing to know what it is.
     private func clusterColor(_ cluster: CPUCluster) -> Color {
@@ -144,6 +144,44 @@ struct CPUView: View {
 
 }
 
+struct CoreBar: Identifiable {
+    let id: Int
+    let usage: Double
+}
+
+/// Rows of core bars. A row with fewer bars than `perRow` stretches those bars
+/// across the full width, so a leftover 2 or 3 does not sit beside empty slots.
+struct CoreUsageRows: View {
+    let cores: [CoreBar]
+    let color: Color
+    var perRow: Int = 5
+    var barHeight: CGFloat = 72
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ForEach(rows) { row in
+                HStack(spacing: 8) {
+                    ForEach(row.cores) { core in
+                        CoreUsageBar(id: core.id, usage: core.usage, color: color, barHeight: barHeight)
+                    }
+                }
+            }
+        }
+    }
+
+    private var rows: [CoreRow] {
+        let width = max(perRow, 1)
+        return stride(from: 0, to: cores.count, by: width).map { start in
+            CoreRow(id: start, cores: Array(cores[start..<min(start + width, cores.count)]))
+        }
+    }
+
+    private struct CoreRow: Identifiable {
+        let id: Int
+        let cores: [CoreBar]
+    }
+}
+
 /// Single core usage bar with hover percentage.
 struct CoreUsageBar: View {
     let id: Int
@@ -154,45 +192,39 @@ struct CoreUsageBar: View {
     @State private var isHovering = false
 
     var body: some View {
-        VStack(spacing: 2) {
-            GeometryReader { geo in
-                let fillHeight = geo.size.height * CGFloat(min(max(usage / 100, 0), 1))
-                ZStack(alignment: .bottom) {
-                    Color.clear
-                    Rectangle()
-                        .fill(color)
-                        .frame(height: fillHeight)
-                    if isHovering {
-                        Text(String(format: "%.1f%%", usage))
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
-                            .padding(.horizontal, 3)
-                            .padding(.vertical, 2)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .padding(2)
-                            .allowsHitTesting(false)
-                    }
+        GeometryReader { geo in
+            let fillHeight = geo.size.height * CGFloat(min(max(usage / 100, 0), 1))
+            ZStack(alignment: .bottom) {
+                Color.clear
+                Rectangle()
+                    .fill(color)
+                    .frame(height: fillHeight)
+                if isHovering {
+                    Text(String(format: "%.1f%%", usage))
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 2)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 3))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(2)
+                        .allowsHitTesting(false)
                 }
             }
-            .frame(height: barHeight)
-            .background(Color.secondary.opacity(0.1))
-            .clipShape(RoundedRectangle(cornerRadius: 2))
-            .contentShape(Rectangle())
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    isHovering = true
-                case .ended:
-                    isHovering = false
-                }
-            }
-            .help(String(format: "Core %d: %.1f%%", id, usage))
-
-            Text("\(id)")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
         }
+        .frame(height: barHeight)
         .frame(maxWidth: .infinity)
+        .background(Color.secondary.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                isHovering = true
+            case .ended:
+                isHovering = false
+            }
+        }
+        .help(String(format: "Core %d: %.1f%%", id, usage))
     }
 }
 

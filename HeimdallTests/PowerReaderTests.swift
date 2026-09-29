@@ -78,6 +78,54 @@ struct PowerReaderTests {
         #expect(power.combined == nil)
     }
 
+    /// A minute of load published in one lump must not be divided by the 2s poll.
+    /// 105_938 mJ over 60s is 1.77 W, which is what the Neural Engine test measured.
+    /// The same lump divided by 2s is the 53 W spike the chart was drawing.
+    @Test func aLatePublicationUsesTheCounterTimestamp() throws {
+        let ticksPerSecond = 24_000_000.0
+        let previous = [
+            "CPU Energy": ChannelSample(unit: "mJ", energy: 0, machTicks: 24_000_000),
+            "ANE0": ChannelSample(unit: "mJ", energy: 0, machTicks: 24_000_000),
+            "GPU Energy": ChannelSample(unit: "nJ", energy: 0, machTicks: 24_000_000),
+        ]
+        let current = [
+            "CPU Energy": ChannelSample(unit: "mJ", energy: 523_864, machTicks: 24_000_000 + 60 * 24_000_000),
+            "ANE0": ChannelSample(unit: "mJ", energy: 105_938, machTicks: 24_000_000 + 60 * 24_000_000),
+            "GPU Energy": ChannelSample(unit: "nJ", energy: 400_000_000, machTicks: 24_000_000 + 2 * 24_000_000),
+        ]
+        let power = SoCPower(previous: previous, current: current, wallInterval: 2, ticksPerSecond: ticksPerSecond)
+
+        #expect(abs(try #require(power.cpu) - 523.864 / 60) < 1e-9)
+        #expect(power.cpuWindow == 60)
+        #expect(abs(try #require(power.ane) - 105.938 / 60) < 1e-9)
+        #expect(power.aneWindow == 60)
+        #expect(abs(try #require(power.gpu) - 0.2) < 1e-9)
+        #expect(power.gpuWindow == 2)
+    }
+
+    /// On an M3 Max the ANE mach timestamp stays put while the energy counter
+    /// jumps. The wall clock since the previous change is what spreads the lump.
+    @Test func aFrozenTimestampUsesTheWallClockSilence() throws {
+        let stuck = UInt64(179_632_928_770)
+        let previous = ["ANE0": ChannelSample(unit: "mJ", energy: 0, machTicks: stuck)]
+        let current = ["ANE0": ChannelSample(unit: "mJ", energy: 105_938, machTicks: stuck)]
+        let power = SoCPower(
+            previous: previous, current: current,
+            wallInterval: 2, ticksPerSecond: 24_000_000,
+            silence: ["ANE0": 60]
+        )
+        #expect(abs(try #require(power.ane) - 105.938 / 60) < 1e-9)
+        #expect(power.aneWindow == 60)
+    }
+
+    @Test func aSilentCounterDoesNotRewriteHistory() {
+        let sample = ["ANE0": ChannelSample(unit: "mJ", energy: 105_938, machTicks: 50)]
+        let power = SoCPower(previous: sample, current: sample, wallInterval: 2, ticksPerSecond: 24_000_000)
+        #expect(power.ane == 0)
+        #expect(power.aneWindow == 0)
+        #expect(power.cpu == nil)
+    }
+
     @Test func aWrappedCounterIsNotNegativePower() {
         let power = SoCPower(readings: [EnergyReading(channel: "CPU Energy", unit: "mJ", value: -5)], interval: 1)
         #expect(power.cpu == 0)

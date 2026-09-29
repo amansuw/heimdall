@@ -11,7 +11,7 @@ struct GPUView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("GPU").font(.largeTitle).fontWeight(.bold)
-                        Text(gpu.usage.modelName).font(.subheadline).foregroundStyle(.secondary)
+                        Text(gpuSubtitle).font(.subheadline).foregroundStyle(.secondary)
                     }
                     Spacer()
                 }
@@ -48,6 +48,10 @@ struct GPUView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Details").font(.headline)
                     HStack { Text("Model").foregroundStyle(.secondary); Spacer(); Text(gpu.usage.modelName) }
+                    if gpu.usage.coreCount > 0 {
+                        Divider()
+                        HStack { Text("Cores").foregroundStyle(.secondary); Spacer(); Text("\(gpu.usage.coreCount)") }
+                    }
                     Divider()
                     HStack { Text("Utilization").foregroundStyle(.secondary); Spacer(); Text(String(format: "%.1f%%", gpu.usage.utilization)) }
                     Divider()
@@ -75,5 +79,8 @@ struct GPUView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-
+    private var gpuSubtitle: String {
+        guard gpu.usage.coreCount > 0 else { return gpu.usage.modelName }
+        return "\(gpu.usage.modelName), \(gpu.usage.coreCount) cores"
+    }
 }

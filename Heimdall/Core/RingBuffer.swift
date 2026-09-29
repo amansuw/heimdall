@@ -13,6 +13,18 @@ struct RingBuffer<Element> {
         self.storage = [Element?](repeating: nil, count: capacity)
     }
 
+    /// Rewrites every stored element. Order does not matter.
+    mutating func updateAll(_ body: (inout Element) -> Void) {
+        guard count > 0 else { return }
+        let start = count < capacity ? 0 : writeIndex
+        for offset in 0..<count {
+            let index = (start + offset) % capacity
+            guard var element = storage[index] else { continue }
+            body(&element)
+            storage[index] = element
+        }
+    }
+
     mutating func append(_ element: Element) {
         storage[writeIndex] = element
         writeIndex = (writeIndex + 1) % capacity
