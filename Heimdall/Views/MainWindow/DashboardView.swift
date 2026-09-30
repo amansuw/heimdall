@@ -132,14 +132,30 @@ struct DashboardView: View {
                         yFormatter: { String(format: "%.1f W", $0) },
                         tooltipFormatter: { PowerFormatter.format($0) }
                     ) {
-                        EmptyView()
+                        // The helper is what turns CPU energy on, so offer it
+                        // where its absence shows, not only in Settings.
+                        if !fan.hasWriteAccess {
+                            Button(fan.isRequestingAccess ? "Waiting for the helper…" : "Enable Helper…") {
+                                commands.requestFanAccess()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(fan.isRequestingAccess)
+                            .help("Installs Heimdall's root helper, which asks for your administrator password. It turns on CPU power and fan control.")
+                        }
                     } subheader: {
                         if soc.cpu == nil {
                             Text(fan.hasWriteAccess
                                  ? "Waiting for macOS to publish CPU energy…"
-                                 : "macOS publishes CPU energy only to a privileged sampler. Enable Fan Control in Settings to install Heimdall's helper, which turns it on.")
+                                 : "macOS publishes CPU energy only to a privileged sampler. Enable the helper to see CPU power.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let error = fan.accessError {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
