@@ -23,13 +23,12 @@ final class PowerState {
     func apply(_ power: SoCPower, at now: Date = Date()) {
         latest = power
         history.append(PowerSnapshot(timestamp: now, cpu: power.cpu, gpu: power.gpu,
-                                      ane: power.ane, system: power.system))
+                                      system: power.system))
         // A late publication describes the whole gap since the counter last
         // moved, not the poll that happened to notice it. Paint that gap so a
         // minute at a few watts is a band, not one needle.
         paint(\.cpu, power.cpu, over: power.cpuWindow, ending: now)
         paint(\.gpu, power.gpu, over: power.gpuWindow, ending: now)
-        paint(\.ane, power.ane, over: power.aneWindow, ending: now)
         refreshFilteredHistory()
     }
 

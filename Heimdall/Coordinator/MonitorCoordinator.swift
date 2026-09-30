@@ -139,13 +139,12 @@ final class MonitorCoordinator: @unchecked Sendable {
     }
 
     func setWindowVisible(_ visible: Bool) {
-        let (opened, uiActive) = pollingLock.withLock { () -> (Bool, Bool) in
-            guard polling.isWindowVisible != visible else { return (false, polling.isUIActive) }
+        let opened = pollingLock.withLock { () -> Bool in
+            guard polling.isWindowVisible != visible else { return false }
             polling.isWindowVisible = visible
             reschedule()
-            return (visible, polling.isUIActive)
+            return visible
         }
-        fanController.setEnergyReporting(uiActive)
         if opened {
             // Catch up immediately when the main window opens.
             fastQueue.async { [weak self] in self?.fastTick() }
@@ -154,13 +153,12 @@ final class MonitorCoordinator: @unchecked Sendable {
     }
 
     func setPopoverVisible(_ visible: Bool) {
-        let (opened, uiActive) = pollingLock.withLock { () -> (Bool, Bool) in
-            guard polling.isPopoverVisible != visible else { return (false, polling.isUIActive) }
+        let opened = pollingLock.withLock { () -> Bool in
+            guard polling.isPopoverVisible != visible else { return false }
             polling.isPopoverVisible = visible
             reschedule()
-            return (visible, polling.isUIActive)
+            return visible
         }
-        fanController.setEnergyReporting(uiActive)
         if opened {
             fastQueue.async { [weak self] in self?.fastTick() }
         }
@@ -214,9 +212,12 @@ final class MonitorCoordinator: @unchecked Sendable {
     // MARK: - Fast Tick
 
     private func fastTick() {
-        let (sleeping, uiActive) = pollingLock.withLock { (polling.isSleeping, polling.isUIActive) }
-        guard !sleeping else { return }
-        fanController.setEnergyReporting(uiActive)
+        guard !pollingLock.withLock({ polling.isSleeping }) else { return }
+        // History is recorded with the window closed too, so CPU energy has to
+        // keep publishing then. Turning it off with the window left a gap in the
+        // power chart for every stretch in the menu bar. Asleep, no tick renews
+        // the helper's 60s lease, so it lapses on its own.
+        fanController.setEnergyReporting(true)
 
         // One sample set at every cadence: since sensors stopped being thinned to
         // every 5th tick, the background and visible paths were identical. What

@@ -279,10 +279,9 @@ class SMCDaemon {
 
     // MARK: - Energy reporting
 
-    /// The power manager only publishes the IOReport CPU and Neural Engine energy
-    /// counters while a client holding com.apple.private.pmgr.nrg.reporting is
+    /// The power manager only publishes the IOReport CPU energy counter while a client holding com.apple.private.pmgr.nrg.reporting is
     /// sampling. No third-party binary can hold that entitlement, root or not;
-    /// powermetrics does. While it runs, the counters publish every second for
+    /// powermetrics does. While it runs, the counter publishes every second for
     /// every process, so the app's unprivileged reader sees live values.
     ///
     /// The command line is fixed and its output discarded: this is a switch, not

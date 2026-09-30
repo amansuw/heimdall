@@ -115,14 +115,8 @@ struct DashboardView: View {
                         StatCard(title: "CPU Power", value: powerText(soc.cpu), icon: "cpu", color: .blue)
                         StatCard(title: "GPU Power", value: powerText(soc.gpu),
                                  icon: "square.3.layers.3d.top.filled", color: .green)
-                        StatCard(title: "Neural Engine",
-                                 value: soc.neuralEngineIsIdle ? "Idle" : powerText(soc.ane),
-                                 icon: "brain", color: soc.neuralEngineIsIdle ? Color.secondary : .purple)
-                        if soc.system != nil {
-                            StatCard(title: "System", value: powerText(soc.system), icon: "bolt.fill", color: .orange)
-                        } else {
-                            StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "bolt.fill", color: .orange)
-                        }
+                        StatCard(title: "SoC Total", value: powerText(soc.combined), icon: "sum", color: .indigo)
+                        StatCard(title: "System", value: powerText(soc.system), icon: "bolt.fill", color: .orange)
                     }
                     .padding(.horizontal)
 
@@ -133,20 +127,17 @@ struct DashboardView: View {
                         series: [
                             .init(power.filteredHistory, value: { $0.cpu }, color: .blue, label: "CPU"),
                             .init(power.filteredHistory, value: { $0.gpu }, color: .green, label: "GPU"),
-                            .init(power.filteredHistory, value: { $0.ane }, color: .purple, label: "Neural Engine"),
                             .init(power.filteredHistory, value: { $0.system }, color: .orange, label: "System", dashed: true),
                         ],
                         yFormatter: { String(format: "%.1f W", $0) },
                         tooltipFormatter: { PowerFormatter.format($0) }
                     ) {
-                        if let total = soc.combined {
-                            Text("SoC \(PowerFormatter.format(total))").font(.caption).foregroundStyle(.secondary)
-                        }
+                        EmptyView()
                     } subheader: {
                         if soc.cpu == nil {
                             Text(fan.hasWriteAccess
-                                 ? "Waiting for macOS to publish CPU and Neural Engine energy…"
-                                 : "macOS publishes CPU and Neural Engine energy only to a privileged sampler. Enable Fan Control in Settings to install Heimdall's helper, which turns it on while this window is open.")
+                                 ? "Waiting for macOS to publish CPU energy…"
+                                 : "macOS publishes CPU energy only to a privileged sampler. Enable Fan Control in Settings to install Heimdall's helper, which turns it on.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
