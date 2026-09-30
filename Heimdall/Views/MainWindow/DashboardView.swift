@@ -127,6 +127,7 @@ struct DashboardView: View {
                         series: [
                             .init(power.filteredHistory, value: { $0.cpu }, color: .blue, label: "CPU"),
                             .init(power.filteredHistory, value: { $0.gpu }, color: .green, label: "GPU"),
+                            .init(power.filteredHistory, value: { $0.combined }, color: .indigo, label: "SoC Total"),
                             .init(power.filteredHistory, value: { $0.system }, color: .orange, label: "System", dashed: true),
                         ],
                         yFormatter: { String(format: "%.1f W", $0) },

@@ -162,6 +162,13 @@ struct PowerSnapshot: Sendable, TimestampedSample {
     var cpu: Double?
     var gpu: Double?
     var system: Double?
+
+    /// CPU + GPU, derived rather than stored so it follows the CPU rail when a
+    /// late publication repaints it. Nil without CPU, like `SoCPower.combined`.
+    var combined: Double? {
+        guard let cpu else { return nil }
+        return cpu + (gpu ?? 0)
+    }
 }
 
 // MARK: - IOReport

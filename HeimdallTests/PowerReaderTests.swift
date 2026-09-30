@@ -129,6 +129,9 @@ struct PowerReaderTests {
     @Test func gpuAloneIsNotTheSoC() {
         #expect(SoCPower(gpu: 0.2).combined == nil)
         #expect(SoCPower(cpu: 1.5, gpu: 0.2).combined == 1.7)
+        #expect(PowerSnapshot(timestamp: .now, gpu: 0.2).combined == nil)
+        #expect(PowerSnapshot(timestamp: .now, cpu: 1.5, gpu: 0.2).combined == 1.7)
+        #expect(PowerSnapshot(timestamp: .now, cpu: 1.5).combined == 1.5)
     }
 
     @Test func aWrappedCounterIsNotNegativePower() {
