@@ -309,7 +309,7 @@ after a partial manual cleanup.
 Explore each module below for a closer look at Heimdall's monitoring and control surfaces.
 
 ### Dashboard
-System overview with CPU/GPU temperature cards and history, CPU/GPU/Neural Engine and whole-system power with power history, fan status, and quick fan presets.
+System overview with CPU/GPU temperature cards and history, CPU, GPU, SoC and whole-system power with power history, fan status, and quick fan presets.
 ![Dashboard](images/dashboard.png)
 
 ### CPU

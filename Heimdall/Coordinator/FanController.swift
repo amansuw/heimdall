@@ -232,9 +232,9 @@ final class FanController: @unchecked Sendable {
         return true
     }
 
-    /// Asks the helper to keep CPU and Neural Engine energy publishing while
-    /// power is on screen. Without the helper those rails read "—". Called on
-    /// every fast tick; ON is a 60s lease on the helper side, renewed every 20s.
+    /// Asks the helper to keep CPU energy publishing. Without the helper CPU
+    /// power reads "—". Called on every fast tick; ON is a 60s lease on the
+    /// helper side, renewed every 20s.
     func setEnergyReporting(_ on: Bool) {
         helperQueue.async { [weak self] in
             guard let self else { return }

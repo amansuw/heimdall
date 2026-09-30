@@ -36,7 +36,6 @@ struct PowerReaderTests {
 
         #expect(abs(try #require(power.cpu) - 1.304) < 1e-9)
         #expect(abs(try #require(power.gpu) - 0.095947569) < 1e-9)
-        #expect(power.ane == 0)
         #expect(abs(try #require(power.memory) - 0.3635) < 1e-9)
         #expect(abs(try #require(power.combined) - (1.304 + 0.095947569)) < 1e-9)
     }
@@ -46,29 +45,16 @@ struct PowerReaderTests {
             EnergyReading(channel: "ECPU", unit: "mJ", value: 500),
             EnergyReading(channel: "PCPU", unit: "mJ", value: 1500),
             EnergyReading(channel: "GPU", unit: "mJ", value: 400),
-            EnergyReading(channel: "ANE0", unit: "mJ", value: 100),
-            EnergyReading(channel: "ANE0 SRAM", unit: "mJ", value: 900),
         ]
         let power = SoCPower(readings: readings, interval: 1)
         #expect(power.cpu == 2.0)
         #expect(power.gpu == 0.4)
-        #expect(power.ane == 0.1)
         #expect(power.memory == nil)
-    }
-
-    /// Measured on an M3 Pro: 0 mJ idle, about 2.4 W while running Vision models.
-    @Test func anUnusedNeuralEngineReadsAsIdle() {
-        #expect(SoCPower(ane: 0).neuralEngineIsIdle)
-        #expect(SoCPower(ane: 0.0004).neuralEngineIsIdle)
-        #expect(!SoCPower(ane: 0.002).neuralEngineIsIdle)
-        #expect(!SoCPower(ane: 2.384).neuralEngineIsIdle)
-        #expect(!SoCPower().neuralEngineIsIdle, "no reading is unknown, not idle")
     }
 
     @Test func missingRailsStayMissing() {
         let power = SoCPower(readings: [EnergyReading(channel: "CPU Energy", unit: "mJ", value: 1000)], interval: 1)
         #expect(power.gpu == nil)
-        #expect(power.ane == nil)
         #expect(power.combined == 1.0)
     }
 
@@ -79,63 +65,56 @@ struct PowerReaderTests {
     }
 
     /// A minute of load published in one lump must not be divided by the 2s poll.
-    /// 105_938 mJ over 60s is 1.77 W, which is what the Neural Engine test measured.
-    /// The same lump divided by 2s is the 53 W spike the chart was drawing.
+    /// 523_864 mJ over 60s is 8.7 W. The same lump divided by 2s is the 262 W
+    /// spike the chart would draw.
     @Test func aLatePublicationUsesTheCounterTimestamp() throws {
         let ticksPerSecond = 24_000_000.0
         let previous = [
             "CPU Energy": ChannelSample(unit: "mJ", energy: 0, machTicks: 24_000_000),
-            "ANE0": ChannelSample(unit: "mJ", energy: 0, machTicks: 24_000_000),
             "GPU Energy": ChannelSample(unit: "nJ", energy: 0, machTicks: 24_000_000),
         ]
         let current = [
             "CPU Energy": ChannelSample(unit: "mJ", energy: 523_864, machTicks: 24_000_000 + 60 * 24_000_000),
-            "ANE0": ChannelSample(unit: "mJ", energy: 105_938, machTicks: 24_000_000 + 60 * 24_000_000),
             "GPU Energy": ChannelSample(unit: "nJ", energy: 400_000_000, machTicks: 24_000_000 + 2 * 24_000_000),
         ]
         let power = SoCPower(previous: previous, current: current, wallInterval: 2, ticksPerSecond: ticksPerSecond)
 
         #expect(abs(try #require(power.cpu) - 523.864 / 60) < 1e-9)
         #expect(power.cpuWindow == 60)
-        #expect(abs(try #require(power.ane) - 105.938 / 60) < 1e-9)
-        #expect(power.aneWindow == 60)
         #expect(abs(try #require(power.gpu) - 0.2) < 1e-9)
         #expect(power.gpuWindow == 2)
     }
 
-    /// On an M3 Max the ANE mach timestamp stays put while the energy counter
-    /// jumps. The wall clock since the previous change is what spreads the lump.
+    /// A counter whose mach timestamp stays put while its energy jumps: the
+    /// wall clock since the previous change is what spreads the lump.
     @Test func aFrozenTimestampUsesTheWallClockSilence() throws {
         let stuck = UInt64(179_632_928_770)
-        let previous = ["ANE0": ChannelSample(unit: "mJ", energy: 0, machTicks: stuck)]
-        let current = ["ANE0": ChannelSample(unit: "mJ", energy: 105_938, machTicks: stuck)]
+        let previous = ["CPU Energy": ChannelSample(unit: "mJ", energy: 0, machTicks: stuck)]
+        let current = ["CPU Energy": ChannelSample(unit: "mJ", energy: 105_938, machTicks: stuck)]
         let power = SoCPower(
             previous: previous, current: current,
             wallInterval: 2, ticksPerSecond: 24_000_000,
-            silence: ["ANE0": 60]
+            silence: ["CPU Energy": 60]
         )
-        #expect(abs(try #require(power.ane) - 105.938 / 60) < 1e-9)
-        #expect(power.aneWindow == 60)
+        #expect(abs(try #require(power.cpu) - 105.938 / 60) < 1e-9)
+        #expect(power.cpuWindow == 60)
     }
 
-    /// A counter that did not publish says nothing about the load. Reading it
-    /// as 0 W put "Idle" on a Neural Engine running Core ML flat out.
+    /// A counter that did not publish says nothing about the load. On an M3 Max
+    /// CPU Energy sits frozen through full load unless powermetrics samples.
     @Test func aSilentCounterIsNoReading() {
-        let sample = ["ANE0": ChannelSample(unit: "mJ", energy: 105_938, machTicks: 50)]
+        let sample = ["CPU Energy": ChannelSample(unit: "mJ", energy: 105_938, machTicks: 50)]
         let power = SoCPower(previous: sample, current: sample, wallInterval: 2, ticksPerSecond: 24_000_000)
-        #expect(power.ane == nil)
-        #expect(power.aneWindow == 0)
-        #expect(!power.neuralEngineIsIdle)
         #expect(power.cpu == nil)
+        #expect(power.cpuWindow == 0)
     }
 
-    /// A counter that ticks with no new energy is a real reading of 0.
-    @Test func aPublishedZeroIsIdle() {
-        let previous = ["ANE0": ChannelSample(unit: "mJ", energy: 500, machTicks: 24_000_000)]
-        let current = ["ANE0": ChannelSample(unit: "mJ", energy: 500, machTicks: 72_000_000)]
+    /// A counter that ticks with no new energy is a real reading of 0 W.
+    @Test func aPublishedZeroIsZeroWatts() {
+        let previous = ["GPU Energy": ChannelSample(unit: "nJ", energy: 500, machTicks: 24_000_000)]
+        let current = ["GPU Energy": ChannelSample(unit: "nJ", energy: 500, machTicks: 72_000_000)]
         let power = SoCPower(previous: previous, current: current, wallInterval: 2, ticksPerSecond: 24_000_000)
-        #expect(power.ane == 0)
-        #expect(power.neuralEngineIsIdle)
+        #expect(power.gpu == 0)
     }
 
     /// Minutes of energy in one publication is an average, not a reading.
@@ -170,7 +149,7 @@ struct PowerReaderTests {
         #expect(reader.read() == nil, "the first read only primes the baseline")
         Thread.sleep(forTimeInterval: 0.5)
         guard let power = reader.read() else { return }
-        for watts in [power.cpu, power.gpu, power.ane, power.memory].compactMap({ $0 }) {
+        for watts in [power.cpu, power.gpu, power.memory].compactMap({ $0 }) {
             #expect(watts.isFinite && watts >= 0 && watts < 500)
         }
     }
