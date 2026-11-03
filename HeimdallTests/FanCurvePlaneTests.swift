@@ -53,4 +53,11 @@ struct FanCurvePlaneTests {
         #expect(abs(bounds.minX - plane.x(forTemperature: points.first!.temperature)) < 1e-9)
         #expect(abs(bounds.maxX - plane.x(forTemperature: points.last!.temperature)) < 1e-9)
     }
+
+    @Test func aUsagePlaneMapsZeroAndOneHundred() {
+        let usage = FanCurvePlane(size: CGSize(width: 200, height: 100), kind: .cpuUsage)
+        #expect(usage.x(forTemperature: 0) == 0)
+        #expect(usage.x(forTemperature: 100) == 200)
+        #expect(usage.temperature(atX: 100) == 50)
+    }
 }

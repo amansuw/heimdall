@@ -35,6 +35,38 @@ struct FanCurveTests {
         #expect(FanCurve(points: []).speedForTemperature(70) == 0)
     }
 
+    @Test func usageCurvesInterpolateOnAZeroToHundredDomain() {
+        let c = FanCurve(inputKind: .gpuUsage)
+        #expect(c.speedForInput(0) == 0)
+        #expect(c.speedForInput(50) == 40)
+        #expect(c.speedForInput(100) == 100)
+    }
+
+    @Test func speedForInputMatchesSpeedForTemperature() {
+        let c = curve([(40, 20), (60, 60)])
+        #expect(c.speedForInput(50) == c.speedForTemperature(50))
+    }
+
+    @Test func legacyJSONDecodesAsATemperatureCurve() throws {
+        let json = """
+        {
+          "id": "11111111-1111-1111-1111-111111111111",
+          "name": "Legacy",
+          "points": [
+            {"id": "22222222-2222-2222-2222-222222222222", "temperature": 40, "fanSpeed": 20},
+            {"id": "33333333-3333-3333-3333-333333333333", "temperature": 80, "fanSpeed": 80}
+          ],
+          "sensorKey": "AGG_CPU_AVG"
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(FanCurve.self, from: json)
+        #expect(decoded.inputKind == .temperature)
+        #expect(decoded.bundleIdentifier.isEmpty)
+        #expect(decoded.processName.isEmpty)
+        #expect(decoded.sensorKey == "AGG_CPU_AVG")
+        #expect(decoded.speedForInput(60) == 50)
+    }
+
     @Test func aCurveKeepsAtLeastTwoPoints() {
         var c = curve([(40, 20), (60, 60)])
         c.removePoint(at: 0)

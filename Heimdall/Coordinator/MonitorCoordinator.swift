@@ -182,13 +182,27 @@ final class MonitorCoordinator: @unchecked Sendable {
     }
 
     private func setSleeping(_ sleeping: Bool) {
-        pollingLock.withLock { polling.isSleeping = sleeping }
+        let changed = pollingLock.withLock { () -> Bool in
+            guard polling.isSleeping != sleeping else { return false }
+            polling.isSleeping = sleeping
+            reschedule()
+            return true
+        }
+        if changed, !sleeping {
+            // Catch up as soon as the display wakes — don't wait for the next
+            // 10s sleep-cadence deadline that may still be pending.
+            fastQueue.async { [weak self] in self?.fastTick() }
+        }
     }
 
     // MARK: - Polling Rate
 
-    /// UI open: 2s. Fan boost: 1s. Menu-bar only: 30s (keeps chart history filled).
+    /// Display off: 10s (sensors+fans only). UI open: 2s. Fan boost: 1s.
+    /// Menu-bar only: 30s (keeps chart history filled).
     private static func fastInterval(for polling: Polling) -> TimeInterval {
+        // Fan curves still need fresh temps while the display is locked/off;
+        // 10s is enough for thermal response without a full UI poll.
+        if polling.isSleeping { return 10.0 }
         if let until = polling.boostedUntil, until > Date() {
             return 1.0
         }
@@ -199,6 +213,7 @@ final class MonitorCoordinator: @unchecked Sendable {
     }
 
     /// UI open: 10s (processes/nettop). Menu-bar only: 60s (battery only, no nettop).
+    /// Display off: slow work stays paused (see slowTick).
     private static func slowInterval(for polling: Polling) -> TimeInterval {
         polling.isUIActive ? 10.0 : 60.0
     }
@@ -212,11 +227,15 @@ final class MonitorCoordinator: @unchecked Sendable {
     // MARK: - Fast Tick
 
     private func fastTick() {
-        guard !pollingLock.withLock({ polling.isSleeping }) else { return }
+        if pollingLock.withLock({ polling.isSleeping }) {
+            sleepTick()
+            return
+        }
         // History is recorded with the window closed too, so CPU energy has to
         // keep publishing then. Turning it off with the window left a gap in the
-        // power chart for every stretch in the menu bar. Asleep, no tick renews
-        // the helper's 60s lease, so it lapses on its own.
+        // power chart for every stretch in the menu bar. Display-off uses
+        // sleepTick instead, which skips energy reporting so the helper's 60s
+        // lease lapses on its own.
         fanController.setEnergyReporting(true)
 
         // One sample set at every cadence: since sensors stopped being thinned to
@@ -233,6 +252,7 @@ final class MonitorCoordinator: @unchecked Sendable {
         if let system = SMCKit.shared.readFloat("PSTR"), system.isFinite, system > 0 {
             power?.system = system
         }
+        fanController.sampleAppLoadIfNeeded(coreCount: cpuReader.totalCores)
         fanController.readFanSpeeds()
 
         DispatchQueue.main.async { [weak self] in
@@ -244,6 +264,29 @@ final class MonitorCoordinator: @unchecked Sendable {
             self.diskState?.applyIO(diskIOResult, recordHistory: true)
             if let sensorResult { self.sensorState?.apply(sensorResult, recordHistory: true) }
             if let power { self.powerState?.apply(power) }
+            self.fanController.applyReadings()
+        }
+    }
+
+    /// Display off / lock screen: keep sensors and fan curve alive, skip charts.
+    /// AFK used to freeze the whole fast tick, so curve control stayed stuck on
+    /// the last pre-lock temperature until the display woke.
+    private func sleepTick() {
+        // CPU/GPU usage curves need fresh totals while locked; app curves need
+        // the load sampler. Sensors stay for temperature curves.
+        let cpuResult = cpuReader.read()
+        let gpuResult = gpuReader.read()
+        let sensorResult = sensorReader.read()
+        fanController.sampleAppLoadIfNeeded(coreCount: cpuReader.totalCores)
+        fanController.readFanSpeeds()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.cpuState?.apply(cpuResult, recordHistory: false)
+            self.gpuState?.apply(gpuResult, recordHistory: false)
+            if let sensorResult {
+                self.sensorState?.apply(sensorResult, recordHistory: false)
+            }
             self.fanController.applyReadings()
         }
     }

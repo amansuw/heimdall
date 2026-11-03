@@ -39,6 +39,9 @@
 		84B0BD31E9CF4375A35A88D9 /* CPUReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A39DC889AC42509729D9B8 /* CPUReader.swift */; };
 		8EC5648E98B345638ED53494 /* DiskReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82A91EFA753243A8A0A0C814 /* DiskReader.swift */; };
 		92D10014E052443C9CFEE037 /* ProcessReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72684ADCAF1E46DD950E4A69 /* ProcessReader.swift */; };
+		A11AD5A0A11AD5A0A11AD502 /* AppLoadSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11AD5A0A11AD5A0A11AD501 /* AppLoadSampler.swift */; };
+		A11AD5A0A11AD5A0A11AD503 /* AppLoadSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11AD5A0A11AD5A0A11AD501 /* AppLoadSampler.swift */; };
+		A11AD5A0A11AD5A0A11AD505 /* AppLoadSamplerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11AD5A0A11AD5A0A11AD504 /* AppLoadSamplerTests.swift */; };
 		9BAC6EEC66934A578E498CD9 /* DiskState.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECFFDE0A263F4F47B761F4E8 /* DiskState.swift */; };
 		A36A4BADAD5D4EB1BE8B0793 /* GPUState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D006C2537A4B3BA0A8249E /* GPUState.swift */; };
 		ABB47DAE67A345878349C84A /* DiskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE41FCFF6574ACD9750E202 /* DiskView.swift */; };
@@ -116,6 +119,8 @@
 		68EDE659465642898B8323D8 /* PopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverView.swift; sourceTree = "<group>"; };
 		6F8D55A52CA144BABB0366C6 /* NetworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkView.swift; sourceTree = "<group>"; };
 		72684ADCAF1E46DD950E4A69 /* ProcessReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessReader.swift; sourceTree = "<group>"; };
+		A11AD5A0A11AD5A0A11AD501 /* AppLoadSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLoadSampler.swift; sourceTree = "<group>"; };
+		A11AD5A0A11AD5A0A11AD504 /* AppLoadSamplerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLoadSamplerTests.swift; sourceTree = "<group>"; };
 		769C877A946641FDA559AF17 /* SensorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorState.swift; sourceTree = "<group>"; };
 		7F1565C6609A432C93D0F36A /* SMCKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCKit.swift; sourceTree = "<group>"; };
 		807132A334504906B8350E24 /* SMCDaemon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCDaemon.swift; sourceTree = "<group>"; };
@@ -246,6 +251,7 @@
 		550A94356D4D41CA8894B719 /* Readers */ = {
 			isa = PBXGroup;
 			children = (
+				A11AD5A0A11AD5A0A11AD501 /* AppLoadSampler.swift */,
 				3E39DAA39DBC4B5BA7F3388E /* BatteryReader.swift */,
 				55A39DC889AC42509729D9B8 /* CPUReader.swift */,
 				82A91EFA753243A8A0A0C814 /* DiskReader.swift */,
@@ -387,6 +393,7 @@
 				A5E1F54F02714D1ABCE40B47 /* SMCCodecTests.swift */,
 				0A55AD97DB3F4D5CB47EEB66 /* SMCFixtureReplayTests.swift */,
 				BE2ADA4F81FF452D991468B2 /* FanCurveTests.swift */,
+				A11AD5A0A11AD5A0A11AD504 /* AppLoadSamplerTests.swift */,
 				453A29B94C6F4DE69A5077E5 /* RingBufferTests.swift */,
 				3930C84E48F441B989948700 /* FanCurvePlaneTests.swift */,
 				670ABE61A4AC4BA5AF42057A /* TemperatureUnitTests.swift */,
@@ -519,6 +526,7 @@
 				71AB87B592844B678AEEF709 /* NetworkReader.swift in Sources */,
 				DA78B73942E94682936A6AD8 /* PowerReader.swift in Sources */,
 				92D10014E052443C9CFEE037 /* ProcessReader.swift in Sources */,
+				A11AD5A0A11AD5A0A11AD502 /* AppLoadSampler.swift in Sources */,
 				714267A05F0642B98BF3BE65 /* RAMReader.swift in Sources */,
 				13512E0CC9E84739BEED68EB /* SensorReader.swift in Sources */,
 				1A713D5851554E3B91F7458C /* BatteryState.swift in Sources */,
@@ -564,11 +572,13 @@
 				9D149124E6604AF69FE6BEEF /* SMCCodecTests.swift in Sources */,
 				216BFEFCE6B048059BC71F15 /* SMCFixtureReplayTests.swift in Sources */,
 				20A9AA6DEC4947B0B596E96B /* FanCurveTests.swift in Sources */,
+				A11AD5A0A11AD5A0A11AD505 /* AppLoadSamplerTests.swift in Sources */,
 				D1BF3EFB0D4F4E07BF1F3D84 /* RingBufferTests.swift in Sources */,
 				4F3BBE3372BF4B678B2FDE7B /* FanCurvePlaneTests.swift in Sources */,
 				4ADF76E8877643608463D334 /* TemperatureUnitTests.swift in Sources */,
 				2AE8B51748CF40CF80D47809 /* SMCCodec.swift in Sources */,
 				857687E47E744B0F8941F76D /* FanCurve.swift in Sources */,
+				A11AD5A0A11AD5A0A11AD503 /* AppLoadSampler.swift in Sources */,
 				50FA498B649D474A8C6E7137 /* RingBuffer.swift in Sources */,
 				FBE27C008F934322A6C91374 /* FanCurvePlane.swift in Sources */,
 				3A9626F60B37408E83969954 /* AppSettings.swift in Sources */,

@@ -168,6 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         fanController.fanState = fanState
         fanController.sensorState = sensorState
+        fanController.cpuState = cpuState
+        fanController.gpuState = gpuState
 
         coordinator.start()
     }

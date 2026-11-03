@@ -1,18 +1,41 @@
 import SwiftUI
 
-/// The temperature × fan-speed plane every fan-curve view draws on. The curve
+/// The input × fan-speed plane every fan-curve view draws on. The curve
 /// editor, its profile cards and the Dashboard preview each carried their own
 /// copy of `(t - 20) / 90`; sharing one mapping means a point cannot be drawn in
 /// one place and hit-tested somewhere else.
+///
+/// `temperature` in method names is the curve's X value (°C or 0–100 usage).
 struct FanCurvePlane {
     static let minTemperature: Double = 20
     static let maxTemperature: Double = 110
-    static var temperatureSpan: Double { maxTemperature - minTemperature }
+    static let minUsage: Double = 0
+    static let maxUsage: Double = 100
 
     let size: CGSize
+    let minInput: Double
+    let maxInput: Double
+
+    var inputSpan: Double { maxInput - minInput }
+
+    init(size: CGSize, minInput: Double = minTemperature, maxInput: Double = maxTemperature) {
+        self.size = size
+        self.minInput = minInput
+        self.maxInput = maxInput
+    }
+
+    init(size: CGSize, kind: FanCurveInputKind) {
+        let domain = kind.inputDomain
+        self.init(size: size, minInput: domain.lowerBound, maxInput: domain.upperBound)
+    }
+
+    init(size: CGSize, curve: FanCurve) {
+        self.init(size: size, kind: curve.inputKind)
+    }
 
     func x(forTemperature celsius: Double) -> CGFloat {
-        CGFloat((celsius - Self.minTemperature) / Self.temperatureSpan) * size.width
+        guard inputSpan > 0 else { return 0 }
+        return CGFloat((celsius - minInput) / inputSpan) * size.width
     }
 
     func y(forSpeed percent: Double) -> CGFloat {
@@ -23,11 +46,11 @@ struct FanCurvePlane {
         CGPoint(x: x(forTemperature: point.temperature), y: y(forSpeed: point.fanSpeed))
     }
 
-    /// Temperature under a view-space x, clamped to the plane.
+    /// Input under a view-space x, clamped to the plane.
     func temperature(atX x: CGFloat) -> Double {
-        guard size.width > 0 else { return Self.minTemperature }
+        guard size.width > 0 else { return minInput }
         let fraction = min(max(Double(x / size.width), 0), 1)
-        return Self.minTemperature + fraction * Self.temperatureSpan
+        return minInput + fraction * inputSpan
     }
 
     /// Fan speed under a view-space y, clamped to 0–100 %.
@@ -62,7 +85,7 @@ struct FanCurvePreview: View {
 
     var body: some View {
         Canvas { context, size in
-            let paths = FanCurvePlane(size: size).paths(for: curve.sortedPoints)
+            let paths = FanCurvePlane(size: size, curve: curve).paths(for: curve.sortedPoints)
             context.fill(paths.area, with: .color(.blue.opacity(fillOpacity)))
             context.stroke(paths.line, with: .color(.blue.opacity(lineOpacity)), lineWidth: lineWidth)
         }

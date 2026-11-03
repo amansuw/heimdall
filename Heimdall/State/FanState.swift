@@ -31,6 +31,8 @@ class FanState {
     var isYielding = false
     var isCurveCooldownActive = false
     var activeCurve: FanCurve?
+    /// Latest resolved curve X input (temp °C or usage %), for the editor marker.
+    var activeCurveInput: Double = 0
 
     var averageSpeedPercentage: Double {
         let pairs = fans.compactMap { fan -> Double? in

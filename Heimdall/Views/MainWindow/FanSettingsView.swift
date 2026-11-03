@@ -1,8 +1,11 @@
+import AppKit
 import SwiftUI
 
 struct FanSettingsView: View {
     @Environment(FanState.self) private var fan
     @Environment(SensorState.self) private var sensors
+    @Environment(CPUState.self) private var cpu
+    @Environment(GPUState.self) private var gpu
     @Environment(ProfileState.self) private var profileState
     @Environment(AppCommands.self) private var commands
     @State private var showAccessPrompt = false
@@ -276,9 +279,7 @@ struct FanSettingsView: View {
     @State private var draggingPointID: UUID? = nil
     @State private var isDraggingCurve = false
 
-    private static let curveMinTemp = FanCurvePlane.minTemperature
-    private static let curveMaxTemp = FanCurvePlane.maxTemperature
-    /// Minimum °C between adjacent control points.
+    /// Minimum input units between adjacent control points.
     private static let minPointSpacing: Double = 1
     /// How close (in points) a click must be to grab an existing control point / the curve line.
     private static let pointGrabRadius: CGFloat = 12
@@ -286,14 +287,18 @@ struct FanSettingsView: View {
     /// Horizontal clearance a click needs from existing points before it inserts a new one.
     private static let minInsertDistance: CGFloat = 20
 
-    /// Curves are stored in °C; the editor shows and accepts the user's unit.
+    /// Curves store temperature in °C; the editor shows and accepts the user's unit.
     private var temperatureUnit: TemperatureUnit { AppSettings.shared.temperatureUnit }
+
+    private var curveDomain: ClosedRange<Double> { curve.inputDomain }
+    private var curveMinInput: Double { curveDomain.lowerBound }
+    private var curveMaxInput: Double { curveDomain.upperBound }
 
     /// Pushes the edited curve into live state right away (cheap) but coalesces the notification
     /// that kicks off the SMC write sequence (expensive).
     private func autoApplyCurve() {
         guard ensureWriteAccess() else { return }
-        curve.sensorKey = selectedSensorKey
+        syncCurveFromEditor()
         fan.activeCurve = curve
 
         curveApplyWork?.cancel()
@@ -302,6 +307,34 @@ struct FanSettingsView: View {
         }
         curveApplyWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.applyDebounce, execute: work)
+    }
+
+    private func syncCurveFromEditor() {
+        curve.sensorKey = selectedSensorKey
+    }
+
+    private func loadCurveIntoEditor(_ c: FanCurve) {
+        curve = c
+        selectedSensorKey = c.sensorKey
+    }
+
+    private func changeInputKind(_ kind: FanCurveInputKind) {
+        guard curve.inputKind != kind else { return }
+        let name = curve.name
+        let sensor = selectedSensorKey
+        let bundle = curve.bundleIdentifier
+        let process = curve.processName
+        let display = curve.applicationDisplayName
+        curve.resetForInputKind(kind)
+        curve.name = name
+        if kind.isTemperature {
+            selectedSensorKey = sensor
+            curve.sensorKey = sensor
+        } else if kind.isApplication {
+            curve.bundleIdentifier = bundle
+            curve.processName = process
+            curve.applicationDisplayName = display
+        }
     }
 
     /// Requests a manual-speed apply, either immediately (gesture ended, preset tapped) or
@@ -375,8 +408,7 @@ struct FanSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Customize Curve") {
-                curve = FanCurve(name: profile.name)
-                selectedSensorKey = curve.sensorKey
+                loadCurveIntoEditor(FanCurve(name: profile.name))
                 editingProfileMode = .curve
                 markProfileEdited()
             }
@@ -397,8 +429,7 @@ struct FanSettingsView: View {
                 .font(.title3).fontWeight(.bold).fontDesign(.rounded)
 
             Button("Convert to Curve") {
-                curve = FanCurve(name: profileState.selectedProfile?.name ?? "Custom")
-                selectedSensorKey = curve.sensorKey
+                loadCurveIntoEditor(FanCurve(name: profileState.selectedProfile?.name ?? "Custom"))
                 editingProfileMode = .curve
                 markProfileEdited()
             }
@@ -420,8 +451,7 @@ struct FanSettingsView: View {
             Text("Fan Curve").font(.headline)
             curveEditorContent(onEdit: autoApplyCurve, onReset: {
                 let name = curve.name
-                curve = FanCurve(name: name)
-                selectedSensorKey = curve.sensorKey
+                loadCurveIntoEditor(FanCurve(name: name, inputKind: curve.inputKind))
                 autoApplyCurve()
             })
         }
@@ -435,20 +465,7 @@ struct FanSettingsView: View {
     @ViewBuilder
     private func curveEditorContent(onEdit: @escaping () -> Void,
                                     onReset: (() -> Void)?) -> some View {
-        // Sensor picker
-        HStack {
-            Text("Sensor:").font(.caption).foregroundStyle(.secondary)
-            Picker("Sensor", selection: $selectedSensorKey) {
-                Text("CPU Average").tag("AGG_CPU_AVG")
-                Text("CPU Hottest").tag("AGG_CPU_MAX")
-                Text("GPU Average").tag("AGG_GPU_AVG")
-                ForEach(sensors.temperatureReadings.prefix(20)) { reading in
-                    Text(reading.name).tag(reading.key)
-                }
-            }
-            .labelsHidden()
-            .controlSize(.small)
-        }
+        curveInputPickers(onEdit: onEdit)
 
         // Curve canvas
         GeometryReader { geo in
@@ -495,11 +512,11 @@ struct FanSettingsView: View {
 
         // Axis labels
         HStack {
-            Text(TempFormatter.formatWhole(Self.curveMinTemp)).font(.caption2).foregroundStyle(.secondary)
+            Text(formatInputAxis(curveMinInput)).font(.caption2).foregroundStyle(.secondary)
             Spacer()
-            Text("Temperature").font(.caption2).foregroundStyle(.secondary)
+            Text(curve.inputKind.axisLabel).font(.caption2).foregroundStyle(.secondary)
             Spacer()
-            Text(TempFormatter.formatWhole(Self.curveMaxTemp)).font(.caption2).foregroundStyle(.secondary)
+            Text(formatInputAxis(curveMaxInput)).font(.caption2).foregroundStyle(.secondary)
         }
 
         // Editable control points table
@@ -531,20 +548,172 @@ struct FanSettingsView: View {
         }
     }
 
+    // MARK: - Input Pickers
+
+    @ViewBuilder
+    private func curveInputPickers(onEdit: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Input:").font(.caption).foregroundStyle(.secondary)
+                Picker("Input", selection: Binding(
+                    get: { curve.inputKind },
+                    set: { kind in
+                        changeInputKind(kind)
+                        onEdit()
+                    }
+                )) {
+                    ForEach(FanCurveInputKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+            }
+
+            if curve.inputKind.isTemperature {
+                HStack {
+                    Text("Sensor:").font(.caption).foregroundStyle(.secondary)
+                    Picker("Sensor", selection: $selectedSensorKey) {
+                        Text("CPU Average").tag("AGG_CPU_AVG")
+                        Text("CPU Hottest").tag("AGG_CPU_MAX")
+                        Text("GPU Average").tag("AGG_GPU_AVG")
+                        ForEach(sensors.temperatureReadings.prefix(20)) { reading in
+                            Text(reading.name).tag(reading.key)
+                        }
+                    }
+                    .labelsHidden()
+                    .controlSize(.small)
+                }
+            }
+
+            if curve.inputKind.isApplication {
+                applicationPicker(onEdit: onEdit)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func applicationPicker(onEdit: @escaping () -> Void) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("App:").font(.caption).foregroundStyle(.secondary)
+            Menu {
+                Button("None") {
+                    curve.bundleIdentifier = ""
+                    curve.processName = ""
+                    curve.applicationDisplayName = ""
+                    onEdit()
+                }
+                if !runningAppChoices.isEmpty {
+                    Section("Applications") {
+                        ForEach(runningAppChoices) { app in
+                            Button {
+                                selectApplication(app, onEdit: onEdit)
+                            } label: {
+                                Text(app.menuLabel)
+                            }
+                        }
+                    }
+                }
+                if !topProcessChoices.isEmpty {
+                    Section("Top Processes") {
+                        ForEach(topProcessChoices, id: \.self) { name in
+                            Button {
+                                curve.bundleIdentifier = ""
+                                curve.processName = name
+                                curve.applicationDisplayName = name
+                                onEdit()
+                            } label: {
+                                Text(name)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Text(applicationPickerLabel)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private var applicationPickerLabel: String {
+        if !curve.applicationDisplayName.isEmpty { return curve.applicationDisplayName }
+        if !curve.processName.isEmpty { return curve.processName }
+        if !curve.bundleIdentifier.isEmpty { return curve.bundleIdentifier }
+        return "Select application…"
+    }
+
+    private struct RunningAppChoice: Identifiable {
+        let id: String
+        let bundleIdentifier: String
+        let processName: String
+        let displayName: String
+
+        var menuLabel: String {
+            if bundleIdentifier.isEmpty { return displayName }
+            return "\(displayName) (\(bundleIdentifier))"
+        }
+    }
+
+    private var runningAppChoices: [RunningAppChoice] {
+        var seen = Set<String>()
+        var apps: [RunningAppChoice] = []
+        for app in NSWorkspace.shared.runningApplications {
+            guard app.activationPolicy == .regular || app.activationPolicy == .accessory else { continue }
+            let bundle = app.bundleIdentifier ?? ""
+            let name = app.localizedName ?? app.executableURL?.lastPathComponent ?? ""
+            guard !name.isEmpty else { continue }
+            let key = bundle.isEmpty ? "name:\(name)" : "bundle:\(bundle)"
+            guard seen.insert(key).inserted else { continue }
+            apps.append(RunningAppChoice(
+                id: key,
+                bundleIdentifier: bundle,
+                processName: app.executableURL?.deletingPathExtension().lastPathComponent ?? name,
+                displayName: name
+            ))
+        }
+        return apps.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    private var topProcessChoices: [String] {
+        let cpuNames = cpu.topProcesses.map(\.name)
+        let gpuNames = gpu.topProcesses.map(\.name)
+        var seen = Set<String>()
+        var names: [String] = []
+        for name in cpuNames + gpuNames {
+            guard seen.insert(name).inserted else { continue }
+            names.append(name)
+        }
+        return names
+    }
+
+    private func selectApplication(_ app: RunningAppChoice, onEdit: @escaping () -> Void) {
+        curve.bundleIdentifier = app.bundleIdentifier
+        curve.processName = app.processName
+        curve.applicationDisplayName = app.displayName
+        onEdit()
+    }
+
     // MARK: - Editable Point Row
 
     @ViewBuilder
     private func editablePointRow(point: CurvePoint, onEdit: @escaping () -> Void) -> some View {
+        let isTemp = curve.inputKind.isTemperature
         VStack(spacing: 4) {
             HStack(spacing: 8) {
-                // Temp field
                 HStack(spacing: 3) {
                     TextField("", value: Binding(
-                        get: { Int(temperatureUnit.convert(point.temperature).rounded()) },
+                        get: {
+                            if isTemp {
+                                return Int(temperatureUnit.convert(point.temperature).rounded())
+                            }
+                            return Int(point.temperature.rounded())
+                        },
                         set: {
-                            let celsius = temperatureUnit.toCelsius(Double($0))
+                            let raw = isTemp ? temperatureUnit.toCelsius(Double($0)) : Double($0)
                             curve.updatePoint(id: point.id,
-                                              temperature: constrainedTemperature(celsius, for: point.id))
+                                              temperature: constrainedInput(raw, for: point.id))
                             onEdit()
                         }
                     ), format: .number)
@@ -552,12 +721,12 @@ struct FanSettingsView: View {
                     .frame(width: 44)
                     .font(.caption)
                     .multilineTextAlignment(.trailing)
-                    Text(temperatureUnit.suffix).font(.caption2).foregroundStyle(.secondary)
+                    Text(isTemp ? temperatureUnit.suffix : "%")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
 
                 Image(systemName: "arrow.right").foregroundStyle(.secondary).font(.caption2)
 
-                // Speed field
                 HStack(spacing: 3) {
                     TextField("", value: Binding(
                         get: { Int(point.fanSpeed) },
@@ -586,13 +755,13 @@ struct FanSettingsView: View {
                 }
             }
 
-            // Sliders
             HStack(spacing: 8) {
-                Image(systemName: "thermometer").font(.caption2).foregroundStyle(.secondary).frame(width: 12)
+                Image(systemName: isTemp ? "thermometer" : "gauge.with.dots.needle.33percent")
+                    .font(.caption2).foregroundStyle(.secondary).frame(width: 12)
                 Slider(value: Binding(
                     get: { point.temperature },
-                    set: { curve.updatePoint(id: point.id, temperature: constrainedTemperature($0, for: point.id)) }
-                ), in: 20...110, step: 1)
+                    set: { curve.updatePoint(id: point.id, temperature: constrainedInput($0, for: point.id)) }
+                ), in: curveMinInput...curveMaxInput, step: 1)
                 .onChange(of: point.temperature) { _, _ in
                     onEdit()
                 }
@@ -774,7 +943,7 @@ struct FanSettingsView: View {
     private func drawCurveCanvas(context: GraphicsContext, size: CGSize, hover: CGPoint?) {
         let sorted = curve.sortedPoints
         guard sorted.count >= 2 else { return }
-        let plane = FanCurvePlane(size: size)
+        let plane = FanCurvePlane(size: size, curve: curve)
 
         // Grid lines
         for i in stride(from: 0.0, through: 100.0, by: 25.0) {
@@ -785,8 +954,10 @@ struct FanSettingsView: View {
             context.stroke(gridPath, with: .color(.secondary.opacity(0.15)), lineWidth: 0.5)
         }
 
-        for temp in stride(from: 30.0, through: 100.0, by: 10.0) {
-            let x = plane.x(forTemperature: temp)
+        let gridStep = curve.inputKind.isTemperature ? 10.0 : 25.0
+        let gridStart = curve.inputKind.isTemperature ? 30.0 : 25.0
+        for input in stride(from: gridStart, through: curveMaxInput, by: gridStep) {
+            let x = plane.x(forTemperature: input)
             var gridPath = Path()
             gridPath.move(to: CGPoint(x: x, y: 0))
             gridPath.addLine(to: CGPoint(x: x, y: size.height))
@@ -807,10 +978,11 @@ struct FanSettingsView: View {
             context.stroke(circle, with: .color(.white), lineWidth: 2)
         }
 
-        // Current sensor temp + running fan speed (red)
-        let currentTemp = sensorTemp(for: selectedSensorKey)
-        if currentTemp > 0, size.width > 0, size.height > 0 {
-            let curX = plane.x(forTemperature: currentTemp)
+        // Current input + running fan speed (red)
+        let currentInput = liveCurveInput
+        let showMarker = curve.inputKind.isTemperature ? currentInput > 0 : true
+        if showMarker, size.width > 0, size.height > 0 {
+            let curX = plane.x(forTemperature: currentInput)
             var indicatorPath = Path()
             indicatorPath.move(to: CGPoint(x: curX, y: 0))
             indicatorPath.addLine(to: CGPoint(x: curX, y: size.height))
@@ -827,8 +999,8 @@ struct FanSettingsView: View {
         if let hover, size.width > 0, size.height > 0 {
             let clampedX = max(0, min(size.width, hover.x))
             let clampedY = max(0, min(size.height, hover.y))
-            let hoverTemp = plane.temperature(atX: clampedX)
-            let profileSpeed = curve.speedForTemperature(hoverTemp)
+            let hoverInput = plane.temperature(atX: clampedX)
+            let profileSpeed = curve.speedForInput(hoverInput)
             let profileY = plane.y(forSpeed: profileSpeed)
 
             var vLine = Path()
@@ -843,12 +1015,10 @@ struct FanSettingsView: View {
             context.stroke(hLine, with: .color(.green.opacity(0.35)),
                          style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
 
-            // Blue: profile curve at hover temp (where green X meets blue curve)
             let blueDot = Path(ellipseIn: CGRect(x: clampedX - 4, y: profileY - 4, width: 8, height: 8))
             context.fill(blueDot, with: .color(.blue))
             context.stroke(blueDot, with: .color(.white), lineWidth: 1.5)
 
-            // Green: click preview at mouse
             let greenDot = Path(ellipseIn: CGRect(x: clampedX - 4, y: clampedY - 4, width: 8, height: 8))
             context.fill(greenDot, with: .color(.green))
             context.stroke(greenDot, with: .color(.white), lineWidth: 1.5)
@@ -860,30 +1030,31 @@ struct FanSettingsView: View {
         let hover = curveHoverLocation ?? .zero
         let clampedX = max(0, min(size.width, hover.x))
         let clampedY = max(0, min(size.height, hover.y))
-        let plane = FanCurvePlane(size: size)
-        let hoverTemp = plane.temperature(atX: clampedX)
+        let plane = FanCurvePlane(size: size, curve: curve)
+        let hoverInput = plane.temperature(atX: clampedX)
         let clickSpeed = plane.speed(atY: clampedY)
-        let currentTemp = sensorTemp(for: selectedSensorKey)
+        let currentInput = liveCurveInput
         let runningSpeed = fan.averageSpeedPercentage
-        let profileSpeed = curve.speedForTemperature(hoverTemp)
+        let profileSpeed = curve.speedForInput(hoverInput)
+        let inputTitle = curve.inputKind.isTemperature ? "Sensor" : "Input"
 
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
                 ChartLineSwatch(color: .red, dashed: true)
-                Text("Sensor").font(.system(size: 9)).foregroundStyle(.secondary)
-                Text("\(TempFormatter.formatWhole(currentTemp)) → \(String(format: "%.0f%%", runningSpeed))")
+                Text(inputTitle).font(.system(size: 9)).foregroundStyle(.secondary)
+                Text("\(formatInputValue(currentInput)) → \(String(format: "%.0f%%", runningSpeed))")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
             }
             HStack(spacing: 5) {
                 ChartLineSwatch(color: .blue)
                 Text("Profile").font(.system(size: 9)).foregroundStyle(.secondary)
-                Text("\(TempFormatter.formatWhole(hoverTemp)) → \(String(format: "%.0f%%", profileSpeed))")
+                Text("\(formatInputValue(hoverInput)) → \(String(format: "%.0f%%", profileSpeed))")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
             }
             HStack(spacing: 5) {
                 ChartLineSwatch(color: .green)
                 Text("Click").font(.system(size: 9)).foregroundStyle(.secondary)
-                Text("\(TempFormatter.formatWhole(hoverTemp)) → \(String(format: "%.0f%%", clickSpeed))")
+                Text("\(formatInputValue(hoverInput)) → \(String(format: "%.0f%%", clickSpeed))")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
             }
         }
@@ -898,6 +1069,23 @@ struct FanSettingsView: View {
 
     // MARK: - Helpers
 
+    private var liveCurveInput: Double {
+        // Prefer the controller's published value when this curve is live.
+        if fan.controlMode == .curve, fan.activeCurve?.id == curve.id {
+            return fan.activeCurveInput
+        }
+        switch curve.inputKind {
+        case .temperature:
+            return sensorTemp(for: selectedSensorKey)
+        case .cpuUsage:
+            return cpu.usage.total
+        case .gpuUsage:
+            return gpu.usage.utilization
+        case .applicationCPU, .applicationGPU:
+            return 0
+        }
+    }
+
     private func sensorTemp(for key: String) -> Double {
         switch key {
         case "AGG_CPU_AVG": return sensors.averageCPUTemp
@@ -907,24 +1095,35 @@ struct FanSettingsView: View {
         }
     }
 
-    /// Clamps a dragged/typed temperature between its immediate neighbours so a point can never
+    private func formatInputAxis(_ value: Double) -> String {
+        curve.inputKind.isTemperature ? TempFormatter.formatWhole(value) : String(format: "%.0f%%", value)
+    }
+
+    private func formatInputValue(_ value: Double) -> String {
+        if curve.inputKind.isTemperature {
+            return TempFormatter.formatWhole(value)
+        }
+        return String(format: "%.0f%%", value)
+    }
+
+    /// Clamps a dragged/typed input between its immediate neighbours so a point can never
     /// be moved past them and scramble the curve's order.
-    private func constrainedTemperature(_ temp: Double, for id: UUID) -> Double {
+    private func constrainedInput(_ input: Double, for id: UUID) -> Double {
         let sorted = curve.sortedPoints
         guard let index = sorted.firstIndex(where: { $0.id == id }) else {
-            return max(Self.curveMinTemp, min(Self.curveMaxTemp, temp))
+            return max(curveMinInput, min(curveMaxInput, input))
         }
-        let lower = index > 0 ? sorted[index - 1].temperature + Self.minPointSpacing : Self.curveMinTemp
-        let upper = index < sorted.count - 1 ? sorted[index + 1].temperature - Self.minPointSpacing : Self.curveMaxTemp
+        let lower = index > 0 ? sorted[index - 1].temperature + Self.minPointSpacing : curveMinInput
+        let upper = index < sorted.count - 1 ? sorted[index + 1].temperature - Self.minPointSpacing : curveMaxInput
         guard lower <= upper else { return sorted[index].temperature }
-        return max(lower, min(upper, temp))
+        return max(lower, min(upper, input))
     }
 
     private func handleDrag(value: DragGesture.Value, size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
 
-        let plane = FanCurvePlane(size: size)
-        let clampedTemp = plane.temperature(atX: value.location.x)
+        let plane = FanCurvePlane(size: size, curve: curve)
+        let clampedInput = plane.temperature(atX: value.location.x)
         let clampedSpeed = plane.speed(atY: value.location.y)
 
         // Pick the grabbed point once, at the start of the gesture, and keep dragging that one —
@@ -932,12 +1131,12 @@ struct FanSettingsView: View {
         if !isDraggingCurve {
             isDraggingCurve = true
             draggingPointID = pointID(near: value.location, size: size)
-                ?? insertPointOnCurve(atTemperature: clampedTemp, location: value.location, size: size)
+                ?? insertPointOnCurve(atInput: clampedInput, location: value.location, size: size)
         }
 
         guard let id = draggingPointID else { return }
         curve.updatePoint(id: id,
-                          temperature: constrainedTemperature(clampedTemp, for: id),
+                          temperature: constrainedInput(clampedInput, for: id),
                           fanSpeed: clampedSpeed)
     }
 
@@ -953,33 +1152,33 @@ struct FanSettingsView: View {
     }
 
     /// Clicking on the curve line itself inserts a control point there.
-    private func insertPointOnCurve(atTemperature temp: Double, location: CGPoint, size: CGSize) -> UUID? {
-        let speedOnCurve = curve.speedForTemperature(temp)
-        let yOnCurve = FanCurvePlane(size: size).y(forSpeed: speedOnCurve)
+    private func insertPointOnCurve(atInput input: Double, location: CGPoint, size: CGSize) -> UUID? {
+        let speedOnCurve = curve.speedForInput(input)
+        let yOnCurve = FanCurvePlane(size: size, curve: curve).y(forSpeed: speedOnCurve)
         guard abs(yOnCurve - location.y) <= Self.lineGrabRadius else { return nil }
 
         // Don't stack a new point on top of an existing one.
         let tooClose = curve.sortedPoints.contains { point in
             abs(canvasPosition(for: point, size: size).x - location.x) < Self.minInsertDistance
-                || abs(point.temperature - temp) < Self.minPointSpacing
+                || abs(point.temperature - input) < Self.minPointSpacing
         }
         guard !tooClose else { return nil }
 
-        let point = CurvePoint(temperature: temp, fanSpeed: speedOnCurve)
+        let point = CurvePoint(temperature: input, fanSpeed: speedOnCurve)
         curve.addPoint(point)
         return point.id
     }
 
     private func canvasPosition(for point: CurvePoint, size: CGSize) -> CGPoint {
-        FanCurvePlane(size: size).position(of: point)
+        FanCurvePlane(size: size, curve: curve).position(of: point)
     }
 
-    /// Splits the widest temperature gap, so a new point never lands on top of an existing one.
+    /// Splits the widest input gap, so a new point never lands on top of an existing one.
     private func addPoint() {
         let sorted = curve.sortedPoints
         guard sorted.count >= 2 else {
-            let temp = (Self.curveMinTemp + Self.curveMaxTemp) / 2
-            curve.addPoint(CurvePoint(temperature: temp, fanSpeed: curve.speedForTemperature(temp)))
+            let input = (curveMinInput + curveMaxInput) / 2
+            curve.addPoint(CurvePoint(temperature: input, fanSpeed: curve.speedForInput(input)))
             return
         }
 
@@ -993,8 +1192,8 @@ struct FanSettingsView: View {
             }
         }
 
-        let temp = (sorted[widestIndex].temperature + sorted[widestIndex + 1].temperature) / 2
-        curve.addPoint(CurvePoint(temperature: temp, fanSpeed: curve.speedForTemperature(temp)))
+        let input = (sorted[widestIndex].temperature + sorted[widestIndex + 1].temperature) / 2
+        curve.addPoint(CurvePoint(temperature: input, fanSpeed: curve.speedForInput(input)))
     }
 
     private func removePoint(id: UUID) {
@@ -1016,11 +1215,9 @@ struct FanSettingsView: View {
             editingManualSpeed = profile.manualSpeedPercentage ?? 100
         case .curve:
             if let c = profile.curve {
-                curve = c
-                selectedSensorKey = c.sensorKey
+                loadCurveIntoEditor(c)
             } else {
-                curve = FanCurve(name: profile.name)
-                selectedSensorKey = curve.sensorKey
+                loadCurveIntoEditor(FanCurve(name: profile.name))
             }
         }
     }
@@ -1067,13 +1264,13 @@ struct FanSettingsView: View {
             profile.manualSpeedPercentage = editingManualSpeed
             profile.curve = nil
         case .curve:
+            syncCurveFromEditor()
             var savedCurve = curve
-            savedCurve.sensorKey = selectedSensorKey
             savedCurve.name = profile.name
             profile.mode = .curve
             profile.curve = savedCurve
             profile.manualSpeedPercentage = nil
-            curve = savedCurve
+            loadCurveIntoEditor(savedCurve)
         }
 
         let wasActive = profileState.activeProfile?.id == profile.id
@@ -1093,8 +1290,7 @@ struct FanSettingsView: View {
         profileState.activate(profile, on: fan, commands: commands)
         selectProfile(profile)
         if let c = profile.curve {
-            curve = c
-            selectedSensorKey = c.sensorKey
+            loadCurveIntoEditor(c)
         }
     }
 

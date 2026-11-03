@@ -14,6 +14,13 @@ import Foundation
 final class FanController: @unchecked Sendable {
     @MainActor weak var fanState: FanState?
     @MainActor weak var sensorState: SensorState?
+    @MainActor weak var cpuState: CPUState?
+    @MainActor weak var gpuState: GPUState?
+    /// Shared with MonitorCoordinator so sleep/fast ticks keep app-load curves alive.
+    let appLoadSampler = AppLoadSampler()
+    /// Snapshot of the active application target for sampler ticks off the main actor.
+    private let appTargetLock = NSLock()
+    private var cachedAppLoadTarget: AppLoadSampler.Target?
 
     private let smc = SMCKit.shared
     private let helperQueue = DispatchQueue(label: "com.heimdall.fan", qos: .userInitiated)
@@ -462,7 +469,31 @@ final class FanController: @unchecked Sendable {
                 fanState.fans[i].currentSpeed = speed
             }
         }
+        refreshAppLoadTargetCache()
+        if let curve = fanState?.activeCurve, fanState?.controlMode == .curve {
+            fanState?.activeCurveInput = curveInputValue(for: curve)
+        }
         reevaluateCurveIfNeeded()
+    }
+
+    /// Call from the monitor's fast/sleep queues before `applyReadings`.
+    func sampleAppLoadIfNeeded(coreCount: Int) {
+        let target = appTargetLock.withLock { cachedAppLoadTarget }
+        guard let target else { return }
+        _ = appLoadSampler.sample(target: target, coreCount: max(coreCount, 1))
+    }
+
+    @MainActor
+    private func refreshAppLoadTargetCache() {
+        let target = activeAppLoadTarget
+        let previous = appTargetLock.withLock { () -> AppLoadSampler.Target? in
+            let old = cachedAppLoadTarget
+            cachedAppLoadTarget = target
+            return old
+        }
+        if previous != nil, target == nil {
+            appLoadSampler.reset()
+        }
     }
 
     // MARK: - Public Control API
@@ -591,7 +622,12 @@ final class FanController: @unchecked Sendable {
 
     @MainActor
     func applyFanCurveSpeed(temperature: Double, curve: FanCurve, allowImmediateOff: Bool = false) {
-        let percentage = curve.speedForTemperature(temperature)
+        applyFanCurveSpeed(input: temperature, curve: curve, allowImmediateOff: allowImmediateOff)
+    }
+
+    @MainActor
+    func applyFanCurveSpeed(input: Double, curve: FanCurve, allowImmediateOff: Bool = false) {
+        let percentage = curve.speedForInput(input)
         let now = Date()
 
         if percentage > 0 {
@@ -645,19 +681,55 @@ final class FanController: @unchecked Sendable {
     private func reevaluateCurveIfNeeded() {
         guard fanState?.controlMode == .curve,
               let curve = fanState?.activeCurve else { return }
-        let temp = curveSensorTemp(for: curve.sensorKey)
-        guard temp > 0 else { return }
+        let input = curveInputValue(for: curve)
+        // Temperature curves still ignore a missing reading (0). Usage curves must
+        // react to a real 0% (app quit / idle) so fans can drop.
+        if curve.inputKind.isTemperature, input <= 0 { return }
 
         // This runs on every fast tick (1-2s) while a write sequence takes ~2.4s, so only
         // enqueue one when the target has actually moved. The zero case still goes through so
         // the cooldown / reset-to-automatic logic keeps running.
-        let target = curve.speedForTemperature(temp)
+        let target = curve.speedForInput(input)
         if target > 0, curveFansForced,
            shouldSkipApply(percentage: target, epsilon: curveApplyEpsilon) {
             return
         }
 
-        applyFanCurveSpeed(temperature: temp, curve: curve)
+        applyFanCurveSpeed(input: input, curve: curve)
+    }
+
+    /// Whether the active curve needs AppLoadSampler ticks (window closed / display off).
+    @MainActor
+    var needsAppLoadSampling: Bool {
+        guard fanState?.controlMode == .curve,
+              let curve = fanState?.activeCurve else { return false }
+        return curve.inputKind.isApplication
+    }
+
+    @MainActor
+    var activeAppLoadTarget: AppLoadSampler.Target? {
+        guard needsAppLoadSampling, let curve = fanState?.activeCurve else { return nil }
+        let target = AppLoadSampler.Target(
+            bundleIdentifier: curve.bundleIdentifier,
+            processName: curve.processName
+        )
+        return target.isEmpty ? nil : target
+    }
+
+    @MainActor
+    func curveInputValue(for curve: FanCurve) -> Double {
+        switch curve.inputKind {
+        case .temperature:
+            return curveSensorTemp(for: curve.sensorKey)
+        case .cpuUsage:
+            return cpuState?.usage.total ?? 0
+        case .gpuUsage:
+            return gpuState?.usage.utilization ?? 0
+        case .applicationCPU:
+            return appLoadSampler.current.cpuPercent
+        case .applicationGPU:
+            return appLoadSampler.current.gpuPercent
+        }
     }
 
     @MainActor
